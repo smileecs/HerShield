@@ -23,24 +23,25 @@ import {
   apiGetMe,
   apiGetContacts,
   apiGetJourneys,
+  apiVerifyEmail,
 } from './services/api';
-import { DEFAULT_TRUSTED_CONTACTS, SAMPLE_ROUTES, SAMPLE_LOCATIONS } from './data/mockData';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>('home');
   const [user, setUser] = useState<User | null>(getStoredUser());
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [isDemoMode, setIsDemoMode] = useState(true);
+  const [isDemoMode, setIsDemoMode] = useState(false);
+  const [initialResetToken, setInitialResetToken] = useState<string | null>(null);
 
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const [contacts, setContacts] = useState<TrustedContact[]>(DEFAULT_TRUSTED_CONTACTS);
+  const [contacts, setContacts] = useState<TrustedContact[]>([]);
   const [journeys, setJourneys] = useState<Journey[]>([]);
   const [activeJourney, setActiveJourney] = useState<Journey | null>(null);
 
   // Selected route state when navigating from SafeRoute -> StartJourney
-  const [stagedRoute, setStagedRoute] = useState<RouteOption>(SAMPLE_ROUTES[0]);
-  const [stagedStartLoc, setStagedStartLoc] = useState(SAMPLE_LOCATIONS.start);
-  const [stagedDestLoc, setStagedDestLoc] = useState(SAMPLE_LOCATIONS.destination);
+  const [stagedRoute, setStagedRoute] = useState<RouteOption | null>(null);
+  const [stagedStartLoc, setStagedStartLoc] = useState<any>(null);
+  const [stagedDestLoc, setStagedDestLoc] = useState<any>(null);
 
   // Share Token check if opened via /share/:token
   const [shareToken, setShareToken] = useState<string | null>(null);
@@ -54,9 +55,9 @@ export default function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  // Initial Boot Data Loading
+  // Initial Boot Data Loading & URL Parameters
   useEffect(() => {
-    // Check if share path in URL
+    // Check path for /share/:token
     const path = window.location.pathname;
     if (path.startsWith('/share/')) {
       const token = path.replace('/share/', '');
@@ -66,22 +67,37 @@ export default function App() {
       }
     }
 
+    // Check query params for verification or password reset
+    const urlParams = new URLSearchParams(window.location.search);
+    const verifyToken = urlParams.get('verifyToken') || urlParams.get('token');
+    const resetToken = urlParams.get('resetToken');
+
+    if (verifyToken) {
+      apiVerifyEmail(verifyToken)
+        .then((res) => {
+          showToast(res.message || 'Email verified successfully! You can now sign in.', 'success');
+          setIsAuthModalOpen(true);
+        })
+        .catch((err) => {
+          showToast(err.message || 'Email verification link invalid or expired.', 'error');
+        });
+      // Clean up search params
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (resetToken) {
+      setInitialResetToken(resetToken);
+      setIsAuthModalOpen(true);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
     async function init() {
       try {
         const me = await apiGetMe();
         setUser(me);
-      } catch {
-        // Fall back to stored demo user
-      }
 
-      try {
+        // Fetch contacts and journeys for authenticated user
         const cList = await apiGetContacts();
         setContacts(cList);
-      } catch {
-        setContacts(DEFAULT_TRUSTED_CONTACTS);
-      }
 
-      try {
         const jList = await apiGetJourneys();
         setJourneys(jList);
         const currentActive = jList.find((j) => j.status === 'active');
@@ -89,7 +105,7 @@ export default function App() {
           setActiveJourney(currentActive);
         }
       } catch {
-        // fallback
+        // Unauthenticated or stored token invalid
       }
     }
 
@@ -100,6 +116,9 @@ export default function App() {
     setStoredToken(null);
     setStoredUser(null);
     setUser(null);
+    setContacts([]);
+    setJourneys([]);
+    setActiveJourney(null);
     showToast('Signed out successfully', 'info');
   };
 
@@ -141,7 +160,7 @@ export default function App() {
       const cList = await apiGetContacts();
       setContacts(cList);
     } catch {
-      // fallback
+      // Ignore
     }
   };
 
@@ -150,12 +169,28 @@ export default function App() {
       const jList = await apiGetJourneys();
       setJourneys(jList);
     } catch {
-      // fallback
+      // Ignore
+    }
+  };
+
+  const handleAuthSuccess = async (loggedInUser: User) => {
+    setUser(loggedInUser);
+    try {
+      const cList = await apiGetContacts();
+      setContacts(cList);
+      const jList = await apiGetJourneys();
+      setJourneys(jList);
+      const currentActive = jList.find((j) => j.status === 'active');
+      if (currentActive) {
+        setActiveJourney(currentActive);
+      }
+    } catch {
+      // Ignore
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 font-sans selection:bg-violet-500 selection:text-white">
+    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 font-sans selection:bg-[#6C4AB6] selection:text-white">
       {/* Toast Notifications */}
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
@@ -197,14 +232,29 @@ export default function App() {
         )}
 
         {activeTab === 'start_journey' && (
-          <StartJourneyPage
-            selectedRoute={stagedRoute}
-            startLocation={stagedStartLoc}
-            destination={stagedDestLoc}
-            trustedContacts={contacts}
-            onJourneyStarted={handleJourneyStarted}
-            showToast={showToast}
-          />
+          stagedRoute && stagedStartLoc && stagedDestLoc ? (
+            <StartJourneyPage
+              selectedRoute={stagedRoute}
+              startLocation={stagedStartLoc}
+              destination={stagedDestLoc}
+              trustedContacts={contacts}
+              onJourneyStarted={handleJourneyStarted}
+              showToast={showToast}
+            />
+          ) : (
+            <div className="py-16 text-center space-y-4 bg-white p-8 rounded-3xl border border-slate-200">
+              <h2 className="text-xl font-extrabold text-slate-900">Please Select a Route First</h2>
+              <p className="text-xs text-slate-500 max-w-md mx-auto">
+                Calculate and choose a route from the SafeRoute safety planner before starting a journey.
+              </p>
+              <button
+                onClick={() => setActiveTab('saferoute')}
+                className="px-5 py-2.5 rounded-xl font-bold text-xs bg-[#6C4AB6] text-white hover:bg-[#43266F]"
+              >
+                Go to SafeRoute Planner
+              </button>
+            </div>
+          )
         )}
 
         {activeTab === 'active_journey' && (
@@ -223,7 +273,7 @@ export default function App() {
               </p>
               <button
                 onClick={() => setActiveTab('saferoute')}
-                className="px-5 py-2.5 rounded-xl font-bold text-xs bg-violet-600 text-white"
+                className="px-5 py-2.5 rounded-xl font-bold text-xs bg-[#6C4AB6] text-white hover:bg-[#43266F]"
               >
                 Plan a SafeRoute
               </button>
@@ -274,8 +324,9 @@ export default function App() {
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
-        onSuccess={(loggedUser) => setUser(loggedUser)}
+        onSuccess={handleAuthSuccess}
         showToast={showToast}
+        initialResetToken={initialResetToken}
       />
     </div>
   );
