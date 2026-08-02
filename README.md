@@ -6,29 +6,29 @@
 
 ## 🌟 Key Features
 
-1.  SafeRoute Comparison Engine**:
+1. **🗺️ SafeRoute Comparison Engine**:
    - Compare available routes using facility density (24/7 pharmacies, police booths, transit stations, hospitals), street illumination index, main road coverage, and community reports.
    - Computes transparent **Safety Information Scores** (0–100) with detailed route breakdowns.
    - Includes important ethical disclaimers (noting scores represent available data rather than absolute safety guarantees).
 
-2.  Trusted Circle Management**:
+2. **👥 Trusted Circle Management**:
    - Add, edit, verify, or remove family members and trusted friends (e.g., Mom, Sister, Friend).
    - Set contact-specific default sharing preferences (`Live Location` vs `Status Only`).
 
-3.  Active Journey & Real-Time Tracking**:
+3. **📍 Active Journey & Real-Time Tracking**:
    - Live location stream powered by **Socket.IO** rooms.
    - Interactive Leaflet map displaying real-time movement along selected routes, safety markers, and active trusted contact indicators.
    - Simulation controls (Normal speed, Fast Forward, Pause) for hackathons and demo reviews.
    - **💚 "I'm Safe"** completion trigger that stops sharing and notifies trusted contacts instantly.
    - **Arrival Check Timer / Prompt**: Automatic "Have you reached your destination?" popup upon arrival.
 
-4.  Secure Public Journey Share View**:
+4. **🔗 Secure Public Journey Share View**:
    - Encrypted share token links (`/share/:shareToken`) allowing trusted contacts to follow journey progress live on any device without requiring login.
 
-5.  Journey History Dashboard**:
+5. **📜 Journey History Dashboard**:
    - Review past trip logs, safety scores, notified contact summaries, and delete history items.
 
-6.  Authentication & Privacy**:
+6. **🔒 Authentication & Privacy**:
    - User Sign Up & Login with `bcryptjs` password hashing and `JWT` token authentication.
    - Privacy controls: Active-journey-bound location sharing (never continuous background tracking).
 

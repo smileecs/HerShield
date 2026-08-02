@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express from 'express';
 import http from 'http';
 import path from 'path';
@@ -77,10 +80,10 @@ const journeys: Record<string, JourneyRecord> = {};
 
 // --- EMAIL SERVICE CONFIGURATION ---
 function getEmailConfig() {
-  const host = process.env.EMAIL_HOST || process.env.SMTP_HOST || (process.env.GMAIL_USER ? 'smtp.gmail.com' : '');
+  const user = process.env.GMAIL_USER || process.env.EMAIL_USER || process.env.SMTP_USER || '';
+  const password = process.env.GMAIL_APP_PASSWORD || process.env.EMAIL_PASSWORD || process.env.EMAIL_PASS || process.env.SMTP_PASS || process.env.GMAIL_PASSWORD || '';
+  const host = process.env.SMTP_HOST || process.env.EMAIL_HOST || 'smtp.gmail.com';
   const port = parseInt(process.env.EMAIL_PORT || process.env.SMTP_PORT || '587', 10);
-  const user = process.env.EMAIL_USER || process.env.SMTP_USER || process.env.GMAIL_USER || '';
-  const password = process.env.EMAIL_PASSWORD || process.env.EMAIL_PASS || process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD || process.env.GMAIL_PASSWORD || '';
   const from = process.env.EMAIL_FROM || (user ? `HerShield Safety <${user}>` : 'HerShield Safety <noreply@hershield.app>');
 
   return { host, port, user, password, from };
@@ -96,10 +99,13 @@ function createEmailTransporter() {
   const hostLower = (host || '').toLowerCase();
   const userLower = (user || '').toLowerCase();
 
-  if (hostLower.includes('gmail') || userLower.endsWith('@gmail.com')) {
+  if (process.env.GMAIL_USER || process.env.GMAIL_APP_PASSWORD || hostLower.includes('gmail') || userLower.endsWith('@gmail.com')) {
     return nodemailer.createTransport({
       service: 'gmail',
-      auth: { user, pass: password },
+      auth: {
+        user,
+        pass: password,
+      },
       connectionTimeout: 10000,
       greetingTimeout: 10000,
       socketTimeout: 10000,
@@ -1206,8 +1212,14 @@ async function startServer() {
     });
   }
 
-  server.listen(PORT, '0.0.0.0', () => {
+  server.listen(PORT, '0.0.0.0', async () => {
     console.log(`🛡️ HerShield Server running on http://0.0.0.0:${PORT}`);
+    const verifyRes = await verifyEmailTransport();
+    if (verifyRes.success) {
+      console.log(`✅ [SMTP STARTUP CHECK] ${verifyRes.message}`);
+    } else {
+      console.log(`⚠️ [SMTP STARTUP CHECK] ${verifyRes.message}`);
+    }
   });
 }
 
