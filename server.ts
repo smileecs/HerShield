@@ -76,60 +76,128 @@ const trustedContacts: Record<string, TrustedContactRecord[]> = {};
 const journeys: Record<string, JourneyRecord> = {};
 
 // --- EMAIL SERVICE CONFIGURATION ---
-const EMAIL_HOST = process.env.EMAIL_HOST || process.env.SMTP_HOST || (process.env.GMAIL_USER ? 'smtp.gmail.com' : '');
-const EMAIL_PORT = parseInt(process.env.EMAIL_PORT || process.env.SMTP_PORT || '587', 10);
-const EMAIL_USER = process.env.EMAIL_USER || process.env.SMTP_USER || process.env.GMAIL_USER || '';
-const EMAIL_PASSWORD = process.env.EMAIL_PASSWORD || process.env.EMAIL_PASS || process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD || process.env.GMAIL_PASSWORD || '';
-const EMAIL_FROM = process.env.EMAIL_FROM || (EMAIL_USER ? `HerShield Safety <${EMAIL_USER}>` : 'HerShield Safety <noreply@hershield.app>');
+function getEmailConfig() {
+  const host = process.env.EMAIL_HOST || process.env.SMTP_HOST || (process.env.GMAIL_USER ? 'smtp.gmail.com' : '');
+  const port = parseInt(process.env.EMAIL_PORT || process.env.SMTP_PORT || '587', 10);
+  const user = process.env.EMAIL_USER || process.env.SMTP_USER || process.env.GMAIL_USER || '';
+  const password = process.env.EMAIL_PASSWORD || process.env.EMAIL_PASS || process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD || process.env.GMAIL_PASSWORD || '';
+  const from = process.env.EMAIL_FROM || (user ? `HerShield Safety <${user}>` : 'HerShield Safety <noreply@hershield.app>');
+
+  return { host, port, user, password, from };
+}
 
 function createEmailTransporter() {
-  if (EMAIL_USER && EMAIL_PASSWORD) {
-    const hostLower = (EMAIL_HOST || '').toLowerCase();
-    const userLower = (EMAIL_USER || '').toLowerCase();
-    if (hostLower.includes('gmail') || userLower.endsWith('@gmail.com')) {
-      return nodemailer.createTransport({
-        service: 'gmail',
-        auth: { user: EMAIL_USER, pass: EMAIL_PASSWORD },
-        connectionTimeout: 8000,
-        greetingTimeout: 8000,
-        socketTimeout: 8000,
-      });
-    }
+  const { host, port, user, password } = getEmailConfig();
+
+  if (!user || !password) {
+    return null;
+  }
+
+  const hostLower = (host || '').toLowerCase();
+  const userLower = (user || '').toLowerCase();
+
+  if (hostLower.includes('gmail') || userLower.endsWith('@gmail.com')) {
     return nodemailer.createTransport({
-      host: EMAIL_HOST || 'smtp.gmail.com',
-      port: EMAIL_PORT,
-      secure: EMAIL_PORT === 465,
-      auth: { user: EMAIL_USER, pass: EMAIL_PASSWORD },
-      connectionTimeout: 8000,
-      greetingTimeout: 8000,
-      socketTimeout: 8000,
-      tls: {
-        rejectUnauthorized: false,
-      },
+      service: 'gmail',
+      auth: { user, pass: password },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 10000,
     });
   }
-  return null;
+
+  return nodemailer.createTransport({
+    host: host || 'smtp.gmail.com',
+    port: port,
+    secure: port === 465,
+    auth: { user, pass: password },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 10000,
+    tls: {
+      rejectUnauthorized: false,
+    },
+  });
+}
+
+async function verifyEmailTransport(): Promise<{ success: boolean; code?: string; message: string; details?: any }> {
+  const { host, user, password } = getEmailConfig();
+
+  if (!host || !user || !password) {
+    return {
+      success: false,
+      code: 'EMAIL_CONFIGURATION_ERROR',
+      message: 'Email verification service is not configured correctly on the server. Missing SMTP environment variables.',
+    };
+  }
+
+  const transporter = createEmailTransporter();
+  if (!transporter) {
+    return {
+      success: false,
+      code: 'EMAIL_CONFIGURATION_ERROR',
+      message: 'Failed to create email transporter with current configuration.',
+    };
+  }
+
+  try {
+    await transporter.verify();
+    return {
+      success: true,
+      message: 'SMTP Email Transport connection verified successfully.',
+    };
+  } catch (err: any) {
+    console.error('❌ [SMTP VERIFY ERROR]', err.message);
+    return {
+      success: false,
+      code: 'EMAIL_SERVICE_ERROR',
+      message: 'Unable to connect to the email service. Please check your SMTP server credentials and network access.',
+      details: err.message,
+    };
+  }
 }
 
 async function sendEmail({ to, subject, html, text }: { to: string; subject: string; html: string; text?: string }) {
-  const transporter = createEmailTransporter();
-  if (transporter) {
-    try {
-      const info = await transporter.sendMail({ from: EMAIL_FROM, to, subject, html, text });
-      console.log(`✉️ [SMTP SUCCESS] Email delivered to ${to}: ${info.messageId}`);
-      return { success: true, messageId: info.messageId, simulated: false };
-    } catch (err: any) {
-      console.error(`❌ [SMTP ERROR] Email delivery failed to ${to}:`, err.message);
-      return { success: false, error: err.message, simulated: false };
-    }
-  } else {
+  const { from, host, user, password } = getEmailConfig();
+
+  if (!user || !password) {
     console.log(`\n==================================================`);
     console.log(`✉️ [HERShield SERVER EMAIL DISPATCH - NO SMTP ENV]`);
     console.log(`To: ${to}`);
     console.log(`Subject: ${subject}`);
     console.log(`Text: ${text || html.replace(/<[^>]+>/g, '').substring(0, 150)}`);
     console.log(`==================================================\n`);
-    return { success: true, simulated: true, warning: 'SMTP environment variables not configured on server.' };
+    return {
+      success: true,
+      simulated: true,
+      warning: 'SMTP environment variables not configured on server.',
+    };
+  }
+
+  const transporter = createEmailTransporter();
+  if (!transporter) {
+    return {
+      success: false,
+      code: 'EMAIL_CONFIGURATION_ERROR',
+      message: 'Email configuration error.',
+      error: 'Transporter creation failed.',
+      simulated: false,
+    };
+  }
+
+  try {
+    const info = await transporter.sendMail({ from, to, subject, html, text });
+    console.log(`✉️ [SMTP SUCCESS] Email delivered to ${to}: ${info.messageId}`);
+    return { success: true, messageId: info.messageId, simulated: false };
+  } catch (err: any) {
+    console.error(`❌ [SMTP ERROR] Email delivery failed to ${to}:`, err.message);
+    return {
+      success: false,
+      code: 'EMAIL_SEND_FAILED',
+      message: 'We could not send the verification email. Please check the email service configuration.',
+      error: err.message,
+      simulated: false,
+    };
   }
 }
 
@@ -409,6 +477,43 @@ const handleResendVerification = async (req: any, res: any) => {
 
 app.post('/api/auth/resend-verification', handleResendVerification);
 app.post('/auth/resend-verification', handleResendVerification);
+
+const handleTestEmail = async (req: any, res: any) => {
+  try {
+    const result = await verifyEmailTransport();
+    const testRecipient = (req.query.sendTo || req.body?.to || req.query.to) as string;
+
+    if (result.success && testRecipient) {
+      const sendResult = await sendEmail({
+        to: testRecipient,
+        subject: 'HerShield — SMTP Verification Test',
+        html: `<div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
+          <h2 style="color: #6C4AB6;">HerShield SMTP Test Email</h2>
+          <p>This is a test email sent from your HerShield deployment to verify SMTP connectivity.</p>
+          <p><strong>Timestamp:</strong> ${new Date().toISOString()}</p>
+        </div>`,
+        text: `HerShield SMTP Test Email\nThis is a test email sent from your HerShield deployment to verify SMTP connectivity.\nTimestamp: ${new Date().toISOString()}`,
+      });
+      return res.json({
+        ...result,
+        testEmailSent: sendResult,
+      });
+    }
+
+    return res.status(result.success ? 200 : 400).json(result);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      code: 'EMAIL_SERVICE_ERROR',
+      message: err.message || 'An unexpected error occurred while testing email configuration.',
+    });
+  }
+};
+
+app.get('/api/auth/test-email', handleTestEmail);
+app.get('/auth/test-email', handleTestEmail);
+app.post('/api/auth/test-email', handleTestEmail);
+app.post('/auth/test-email', handleTestEmail);
 
 const handleLogin = (req: any, res: any) => {
   const { email, password } = req.body;
