@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, Lock, Mail, User as UserIcon, Shield, ArrowRight, CheckCircle2, AlertCircle, RefreshCw, Check, Sparkles } from 'lucide-react';
-import { apiLogin, apiRegister, apiResendVerification, apiForgotPassword, apiResetPassword, apiVerifyEmail } from '../services/api';
+import { X, Lock, Mail, User as UserIcon, Shield, ArrowRight, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
+import { apiLogin, apiRegister, apiResendVerification, apiForgotPassword, apiResetPassword } from '../services/api';
 import { User } from '../types';
 
 interface AuthModalProps {
@@ -24,9 +24,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
   const [error, setError] = useState<string | null>(null);
   const [successInfo, setSuccessInfo] = useState<string | null>(null);
   const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
-  const [tokenToVerify, setTokenToVerify] = useState<string | null>(null);
   const [resendLoading, setResendLoading] = useState(false);
-  const [verifyingInstantly, setVerifyingInstantly] = useState(false);
 
   useEffect(() => {
     if (initialResetToken) {
@@ -56,9 +54,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
       } catch (err: any) {
         if (err.unverified) {
           setUnverifiedEmail(err.email || email);
-          if (err.verificationToken) {
-            setTokenToVerify(err.verificationToken);
-          }
           setError('Please verify your email address before logging in.');
         } else {
           setError(err.message || 'Invalid email or password.');
@@ -85,10 +80,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
         const res = await apiRegister(name, email, password, confirmPassword);
         setSuccessInfo(res.message);
         setUnverifiedEmail(email);
-        if (res.verificationToken) {
-          setTokenToVerify(res.verificationToken);
-        }
-        showToast('Registration complete! Please verify your email to log in.', 'success');
+        showToast('Registration complete! Please check your email for the verification link.', 'success');
       } catch (err: any) {
         setError(err.message || 'Registration failed. Please try again.');
       } finally {
@@ -144,31 +136,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
       const res = await apiResendVerification(targetEmail);
       showToast(res.message, 'success');
       setSuccessInfo(res.message);
-      if (res.verificationToken) {
-        setTokenToVerify(res.verificationToken);
-      }
     } catch (err: any) {
       showToast(err.message || 'Failed to resend verification email.', 'error');
     } finally {
       setResendLoading(false);
-    }
-  };
-
-  const handleDirectVerify = async () => {
-    if (!tokenToVerify) return;
-    setVerifyingInstantly(true);
-    try {
-      const res = await apiVerifyEmail(tokenToVerify);
-      showToast(res.message || 'Email verified successfully!', 'success');
-      setError(null);
-      setSuccessInfo('Email address verified successfully! You can now sign in.');
-      setTokenToVerify(null);
-      setUnverifiedEmail(null);
-      setMode('login');
-    } catch (err: any) {
-      showToast(err.message || 'Verification failed.', 'error');
-    } finally {
-      setVerifyingInstantly(false);
     }
   };
 
@@ -250,24 +221,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
                       ) : (
                         <RefreshCw className="w-3 h-3" />
                       )}
-                      <span>Resend Email</span>
+                      <span>Resend Verification Email</span>
                     </button>
-
-                    {tokenToVerify && (
-                      <button
-                        type="button"
-                        onClick={handleDirectVerify}
-                        disabled={verifyingInstantly}
-                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 transition-colors shadow-sm"
-                      >
-                        {verifyingInstantly ? (
-                          <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                        ) : (
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                        )}
-                        <span>Verify Email Now</span>
-                      </button>
-                    )}
                   </div>
                 )}
               </div>
@@ -279,8 +234,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
               <div className="flex-1">
                 <div>{successInfo}</div>
-                <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                  {(mode === 'register' || unverifiedEmail) && (
+                {(mode === 'register' || unverifiedEmail) && (
+                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       onClick={handleResend}
@@ -292,26 +247,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
                       ) : (
                         <RefreshCw className="w-3 h-3" />
                       )}
-                      <span>Resend Email</span>
+                      <span>Resend Verification Email</span>
                     </button>
-                  )}
-
-                  {tokenToVerify && (
-                    <button
-                      type="button"
-                      onClick={handleDirectVerify}
-                      disabled={verifyingInstantly}
-                      className="px-3 py-1.5 bg-[#6C4AB6] hover:bg-[#43266F] text-white rounded-lg font-bold text-xs flex items-center gap-1.5 transition-colors shadow-xs"
-                    >
-                      {verifyingInstantly ? (
-                        <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                      ) : (
-                        <Sparkles className="w-3.5 h-3.5" />
-                      )}
-                      <span>Verify Email Now</span>
-                    </button>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

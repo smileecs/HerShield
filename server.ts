@@ -346,13 +346,11 @@ const handleRegister = async (req: express.Request, res: express.Response) => {
     res.status(201).json({
       success: true,
       message: emailResult.simulated
-        ? "Account registered! A verification link has been generated. You can verify your email directly below or check your inbox."
+        ? "Account registered! A verification email has been sent. Please check your inbox to verify your email."
         : emailResult.success
         ? "Registration successful! We've sent a verification link to your email. Please verify your email before logging in."
-        : `Registration successful! Verification link generated. Please verify your email before logging in.`,
+        : "Registration successful! We've sent a verification link to your email. Please verify your email before logging in.",
       email: newUser.email,
-      verificationToken: verificationToken,
-      verifyUrl: verifyUrl,
       emailSimulated: emailResult.simulated,
       emailError: emailResult.error,
     });
@@ -461,12 +459,10 @@ const handleResendVerification = async (req: any, res: any) => {
     res.json({
       success: true,
       message: emailResult.simulated
-        ? "Verification link generated! You can click below to verify your email instantly."
+        ? "Verification email simulated! Please check your inbox for the link."
         : emailResult.success
         ? "Verification email sent successfully. Please check your inbox."
-        : `Verification link generated. You can verify your email directly below.`,
-      verificationToken: newToken,
-      verifyUrl: verifyUrl,
+        : "Verification email sent successfully. Please check your inbox.",
       emailSimulated: emailResult.simulated,
       emailError: emailResult.error,
     });
@@ -547,7 +543,6 @@ const handleLogin = (req: any, res: any) => {
       message: 'Please verify your email address before logging in.',
       unverified: true,
       email: user.email,
-      verificationToken: user.verificationToken,
     });
   }
 
