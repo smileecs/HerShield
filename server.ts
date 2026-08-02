@@ -160,6 +160,8 @@ async function verifyEmailTransport(): Promise<{ success: boolean; code?: string
 async function sendEmail({ to, subject, html, text }: { to: string; subject: string; html: string; text?: string }) {
   const { from, host, user, password } = getEmailConfig();
 
+  console.log(`[EMAIL SEND START] Recipient: ${to} | Subject: "${subject}"`);
+
   if (!user || !password) {
     console.log(`\n==================================================`);
     console.log(`✉️ [HERShield SERVER EMAIL DISPATCH - NO SMTP ENV]`);
@@ -176,6 +178,7 @@ async function sendEmail({ to, subject, html, text }: { to: string; subject: str
 
   const transporter = createEmailTransporter();
   if (!transporter) {
+    console.error(`❌ [EMAIL SEND FAIL] Transporter creation failed for ${to}`);
     return {
       success: false,
       code: 'EMAIL_CONFIGURATION_ERROR',
@@ -187,15 +190,15 @@ async function sendEmail({ to, subject, html, text }: { to: string; subject: str
 
   try {
     const info = await transporter.sendMail({ from, to, subject, html, text });
-    console.log(`✉️ [SMTP SUCCESS] Email delivered to ${to}: ${info.messageId}`);
-    return { success: true, messageId: info.messageId, simulated: false };
+    console.log(`✉️ [SMTP SUCCESS] Email delivered to ${to} | MessageID: ${info.messageId} | Accepted: ${JSON.stringify(info.accepted)} | Rejected: ${JSON.stringify(info.rejected)}`);
+    return { success: true, messageId: info.messageId, accepted: info.accepted, rejected: info.rejected, simulated: false };
   } catch (err: any) {
-    console.error(`❌ [SMTP ERROR] Email delivery failed to ${to}:`, err.message);
+    console.error(`❌ [SMTP ERROR] Email delivery failed to ${to}:`, err.message || err);
     return {
       success: false,
       code: 'EMAIL_SEND_FAILED',
       message: 'We could not send the verification email. Please check the email service configuration.',
-      error: err.message,
+      error: err.message || String(err),
       simulated: false,
     };
   }
@@ -240,10 +243,14 @@ app.get('/health', (_req, res) => {
 // --- AUTHENTICATION API ROUTES ---
 const handleRegister = async (req: express.Request, res: express.Response) => {
   res.setHeader('Content-Type', 'application/json');
+  console.log(`\n==================================================`);
+  console.log(`[REGISTER START] Received signup request`);
   try {
     const { name, email, password, confirmPassword } = req.body || {};
+    console.log(`[REQUEST VALIDATION] Email: ${email} | Name: ${name}`);
 
     if (!name || !email || !password) {
+      console.log(`[REGISTER FAIL] Missing required fields`);
       return res.status(400).json({
         success: false,
         error: 'Full name, email, and password are required.',
@@ -252,6 +259,7 @@ const handleRegister = async (req: express.Request, res: express.Response) => {
     }
 
     if (confirmPassword !== undefined && password !== confirmPassword) {
+      console.log(`[REGISTER FAIL] Passwords do not match`);
       return res.status(400).json({
         success: false,
         error: 'Passwords do not match.',
@@ -260,6 +268,7 @@ const handleRegister = async (req: express.Request, res: express.Response) => {
     }
 
     if (password.length < 6) {
+      console.log(`[REGISTER FAIL] Password too short`);
       return res.status(400).json({
         success: false,
         error: 'Password must be at least 6 characters long.',
@@ -269,6 +278,7 @@ const handleRegister = async (req: express.Request, res: express.Response) => {
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
+      console.log(`[REGISTER FAIL] Invalid email format`);
       return res.status(400).json({
         success: false,
         error: 'Please enter a valid email address.',
@@ -276,8 +286,10 @@ const handleRegister = async (req: express.Request, res: express.Response) => {
       });
     }
 
+    console.log(`[USER LOOKUP] Checking if ${email} already exists`);
     const existingUser = Object.values(users).find((u) => u.email.toLowerCase() === email.toLowerCase());
     if (existingUser) {
+      console.log(`[REGISTER FAIL] Duplicate user account: ${email}`);
       return res.status(409).json({
         success: false,
         error: 'An account with this email address already exists.',
@@ -285,11 +297,15 @@ const handleRegister = async (req: express.Request, res: express.Response) => {
       });
     }
 
+    console.log(`[PASSWORD HASH] Hashing password for ${email}`);
     const id = `usr_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
     const passwordHash = bcrypt.hashSync(password, 10);
+
+    console.log(`[TOKEN CREATION] Generating verification token for ${email}`);
     const verificationToken = crypto.randomBytes(32).toString('hex');
     const verificationTokenExpiry = Date.now() + 24 * 3600 * 1000; // 24 hours
 
+    console.log(`[USER CREATION] Saving user ${id} (${email}) to store with emailVerified=false`);
     const newUser: UserRecord = {
       id,
       name: name.trim(),
@@ -336,12 +352,17 @@ const handleRegister = async (req: express.Request, res: express.Response) => {
       </div>
     `;
 
+    console.log(`[EMAIL SEND START] Dispatching verification email to recipient: ${newUser.email}`);
     const emailResult = await sendEmail({
       to: newUser.email,
       subject: 'HerShield — Verify Your Email Address',
       html: emailHtml,
       text: `Welcome to HerShield, ${name}! Verify your email address by clicking: ${verifyUrl}`,
     });
+
+    console.log(`[EMAIL SEND RESULT] Result:`, emailResult);
+    console.log(`[REGISTER SUCCESS] User ${id} created successfully.`);
+    console.log(`==================================================\n`);
 
     res.status(201).json({
       success: true,
