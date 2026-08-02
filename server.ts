@@ -7,7 +7,6 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import { Server as SocketIOServer } from 'socket.io';
-import { createServer as createViteServer } from 'vite';
 
 const PORT = 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'hershield_secure_jwt_secret_key';
@@ -104,7 +103,7 @@ async function sendEmail({ to, subject, html, text }: { to: string; subject: str
       return { success: true, messageId: info.messageId };
     } catch (err: any) {
       console.error(`❌ Email delivery error to ${to}:`, err.message);
-      throw new Error(`Email delivery failed: ${err.message}`);
+      return { success: false, error: err.message };
     }
   } else {
     console.log(`\n==================================================`);
@@ -123,12 +122,12 @@ const authenticateToken = (req: any, res: any, next: any) => {
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
-    return res.status(401).json({ error: 'Access token required' });
+    return res.status(401).json({ success: false, error: 'Access token required', message: 'Access token required' });
   }
 
   jwt.verify(token, JWT_SECRET, (err: any, decoded: any) => {
     if (err) {
-      return res.status(403).json({ error: 'Invalid or expired session token' });
+      return res.status(403).json({ success: false, error: 'Invalid or expired session token', message: 'Invalid or expired session token' });
     }
     req.user = decoded;
     next();
@@ -137,37 +136,68 @@ const authenticateToken = (req: any, res: any, next: any) => {
 
 // --- HEALTH CHECK ---
 app.get('/api/health', (_req, res) => {
-  res.json({
+  res.setHeader('Content-Type', 'application/json');
+  res.status(200).json({
+    status: 'ok',
+    service: 'HerShield API',
+  });
+});
+
+// Support health check without /api prefix if Vercel strips it
+app.get('/health', (_req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.status(200).json({
     status: 'ok',
     service: 'HerShield API',
   });
 });
 
 // --- AUTHENTICATION API ROUTES ---
-app.post('/api/auth/register', async (req, res) => {
+const handleRegister = async (req: express.Request, res: express.Response) => {
+  res.setHeader('Content-Type', 'application/json');
   try {
-    const { name, email, password, confirmPassword } = req.body;
+    const { name, email, password, confirmPassword } = req.body || {};
 
     if (!name || !email || !password) {
-      return res.status(400).json({ error: 'Full name, email, and password are required.' });
+      return res.status(400).json({
+        success: false,
+        error: 'Full name, email, and password are required.',
+        message: 'Full name, email, and password are required.',
+      });
     }
 
-    if (password !== confirmPassword) {
-      return res.status(400).json({ error: 'Passwords do not match.' });
+    if (confirmPassword !== undefined && password !== confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        error: 'Passwords do not match.',
+        message: 'Passwords do not match.',
+      });
     }
 
     if (password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
+      return res.status(400).json({
+        success: false,
+        error: 'Password must be at least 6 characters long.',
+        message: 'Password must be at least 6 characters long.',
+      });
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      return res.status(400).json({ error: 'Please enter a valid email address.' });
+      return res.status(400).json({
+        success: false,
+        error: 'Please enter a valid email address.',
+        message: 'Please enter a valid email address.',
+      });
     }
 
     const existingUser = Object.values(users).find((u) => u.email.toLowerCase() === email.toLowerCase());
     if (existingUser) {
-      return res.status(400).json({ error: 'An account with this email address already exists.' });
+      return res.status(409).json({
+        success: false,
+        error: 'An account with this email address already exists.',
+        message: 'An account with this email address already exists.',
+      });
     }
 
     const id = `usr_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
@@ -221,7 +251,7 @@ app.post('/api/auth/register', async (req, res) => {
       </div>
     `;
 
-    await sendEmail({
+    const emailResult = await sendEmail({
       to: newUser.email,
       subject: 'HerShield — Verify Your Email Address',
       html: emailHtml,
@@ -230,15 +260,24 @@ app.post('/api/auth/register', async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: "Registration successful! We've sent a verification link to your email. Please verify your email before logging in.",
+      message: emailResult.success
+        ? "Registration successful! We've sent a verification link to your email. Please verify your email before logging in."
+        : "Registration successful! Verification link generated. Please verify your email before logging in.",
       email: newUser.email,
-      verificationToken: verificationToken, // Provided to allow easy standard testing link in dev preview
+      verificationToken: verificationToken,
     });
   } catch (err: any) {
-    console.error('Registration error:', err);
-    res.status(500).json({ success: false, error: err.message || 'Unable to create your account. Please try again.', message: err.message || 'Unable to create your account. Please try again.' });
+    console.error('[REGISTER ERROR]', err);
+    res.status(500).json({
+      success: false,
+      error: err.message || 'Unable to create your account. Please try again.',
+      message: err.message || 'Unable to create your account. Please try again.',
+    });
   }
-});
+};
+
+app.post('/api/auth/register', handleRegister);
+app.post('/auth/register', handleRegister);
 
 app.get('/api/auth/verify-email', (req, res) => {
   const token = req.query.token as string;
@@ -925,6 +964,7 @@ io.on('connection', (socket) => {
 
 // --- CATCH-ALL UNKNOWN API ENDPOINT HANDLER ---
 app.all('/api/*', (_req, res) => {
+  res.setHeader('Content-Type', 'application/json');
   res.status(404).json({
     success: false,
     error: 'API route not found',
@@ -932,9 +972,21 @@ app.all('/api/*', (_req, res) => {
   });
 });
 
+// --- GLOBAL EXPRESS ERROR HANDLER ---
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('[UNHANDLED EXPRESS ERROR]:', err);
+  res.setHeader('Content-Type', 'application/json');
+  res.status(err.status || 500).json({
+    success: false,
+    error: err.message || 'Internal Server Error',
+    message: err.message || 'Internal Server Error',
+  });
+});
+
 // --- VITE MIDDLEWARE & PROD STATIC SERVING ---
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
