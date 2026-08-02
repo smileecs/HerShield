@@ -76,7 +76,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
     // 1. Start Marker
     if (startLocation) {
       const startHtml = `
-        <div class="flex items-center justify-center w-9 h-9 bg-teal-700 text-white rounded-full shadow-lg border-2 border-white ring-4 ring-teal-600/20 font-bold text-xs">
+        <div class="flex items-center justify-center w-9 h-9 bg-[#6C4AB6] text-white rounded-full shadow-lg border-2 border-white ring-4 ring-[#6C4AB6]/20 font-bold text-xs">
           📍
         </div>
       `;
@@ -84,8 +84,8 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
         icon: createHtmlIcon(startHtml, '', [36, 36]),
       }).bindPopup(`
         <div class="p-1 font-sans">
-          <div class="text-xs font-semibold text-teal-800 uppercase tracking-wider">Start Point</div>
-          <div class="text-sm font-medium text-slate-800">${startLocation.address}</div>
+          <div class="text-xs font-semibold text-[#6C4AB6] uppercase tracking-wider">Start Point</div>
+          <div class="text-sm font-medium text-[#24202B]">${startLocation.address}</div>
         </div>
       `);
       markersGroup.addLayer(startMarker);
@@ -95,7 +95,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
     // 2. Destination Marker
     if (destination) {
       const destHtml = `
-        <div class="flex items-center justify-center w-9 h-9 bg-rose-600 text-white rounded-full shadow-lg border-2 border-white ring-4 ring-rose-500/20 font-bold text-xs">
+        <div class="flex items-center justify-center w-9 h-9 bg-[#E88BA5] text-white rounded-full shadow-lg border-2 border-white ring-4 ring-[#E88BA5]/30 font-bold text-xs">
           🏁
         </div>
       `;
@@ -103,8 +103,8 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
         icon: createHtmlIcon(destHtml, '', [36, 36]),
       }).bindPopup(`
         <div class="p-1 font-sans">
-          <div class="text-xs font-semibold text-rose-700 uppercase tracking-wider">Destination</div>
-          <div class="text-sm font-medium text-slate-800">${destination.address}</div>
+          <div class="text-xs font-semibold text-[#E88BA5] uppercase tracking-wider">Destination</div>
+          <div class="text-sm font-medium text-[#24202B]">${destination.address}</div>
         </div>
       `);
       markersGroup.addLayer(destMarker);
@@ -118,14 +118,14 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
 
       polylineCoords.forEach((c) => bounds.push(c));
 
-      // Color scheme based on route safety
+      // Color scheme based on route safety and selection
       const routeColor = isSelected
         ? route.safetyScore >= 80
-          ? '#0f766e' // teal-700
+          ? '#6C4AB6' // Primary HerShield Purple
           : route.safetyScore >= 70
-          ? '#d97706' // amber-600
-          : '#e11d48' // rose-600
-        : '#94a3b8'; // slate-400
+          ? '#D99A24' // Warning Amber
+          : '#D9535B' // Danger Red
+        : '#A098AD'; // Soft Slate/Lavender Gray
 
       const polyline = L.polyline(polylineCoords, {
         color: routeColor,
@@ -152,7 +152,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
             incident: '⚠️',
           }[sm.type] || '📍';
 
-          const bgClass = sm.type === 'incident' ? 'bg-amber-500' : sm.type === 'police' ? 'bg-teal-800' : 'bg-emerald-600';
+          const bgClass = sm.type === 'incident' ? 'bg-[#D99A24]' : sm.type === 'police' ? 'bg-[#43266F]' : 'bg-[#2E9B67]';
 
           const markerHtml = `
             <div class="flex items-center justify-center w-7 h-7 ${bgClass} text-white rounded-full shadow-md border border-white text-xs">
@@ -164,10 +164,10 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
             icon: createHtmlIcon(markerHtml, '', [28, 28]),
           }).bindPopup(`
             <div class="p-1 max-w-[200px] font-sans">
-              <div class="font-semibold text-xs text-slate-900 flex items-center gap-1">
+              <div class="font-semibold text-xs text-[#24202B] flex items-center gap-1">
                 <span>${iconEmoji}</span> ${sm.title}
               </div>
-              <div class="text-xs text-slate-600 mt-0.5">${sm.description}</div>
+              <div class="text-xs text-[#756D82] mt-0.5">${sm.description}</div>
             </div>
           `);
 
@@ -180,8 +180,8 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
     if (isJourneyActive && currentLocation) {
       const liveHtml = `
         <div class="relative flex items-center justify-center w-10 h-10">
-          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-          <div class="relative flex items-center justify-center w-8 h-8 bg-emerald-600 text-white rounded-full shadow-xl border-2 border-white ring-2 ring-emerald-500 text-xs font-bold">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#2E9B67] opacity-75"></span>
+          <div class="relative flex items-center justify-center w-8 h-8 bg-[#2E9B67] text-white rounded-full shadow-xl border-2 border-white ring-2 ring-[#2E9B67]/30 text-xs font-bold">
             🚶‍♀️
           </div>
         </div>
@@ -191,10 +191,10 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
         zIndexOffset: 1000,
       }).bindPopup(`
         <div class="p-1 font-sans">
-          <div class="text-xs font-bold text-emerald-700 uppercase tracking-wider flex items-center gap-1">
-            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Live Journey Position
+          <div class="text-xs font-bold text-[#2E9B67] uppercase tracking-wider flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-[#2E9B67] animate-pulse"></span> Live Position
           </div>
-          <div class="text-xs text-slate-600 mt-1">Updates streamed to Trusted Circle</div>
+          <div class="text-xs text-[#756D82] mt-1">Updates streamed to Trusted Circle</div>
         </div>
       `);
       markersGroup.addLayer(liveMarker);
@@ -225,19 +225,19 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   }, []);
 
   return (
-    <div className="relative overflow-hidden rounded-2xl shadow-inner border border-slate-200 bg-slate-100">
+    <div className="relative overflow-hidden rounded-2xl shadow-inner border border-slate-200 bg-[#F8F6FC]">
       <div ref={mapContainerRef} className={className} />
 
       {/* Map Legend Overlay */}
-      <div className="absolute bottom-3 left-3 z-[400] bg-white/90 backdrop-blur-md px-3 py-2 rounded-xl shadow-md border border-slate-200 text-xs flex items-center gap-3">
-        <div className="flex items-center gap-1.5 font-medium text-slate-700">
-          <span className="w-2.5 h-2.5 rounded-full bg-teal-700"></span> Start
+      <div className="absolute bottom-3 left-3 z-[400] bg-white/95 backdrop-blur-md px-3.5 py-2 rounded-xl shadow-md border border-slate-200 text-xs flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-1.5 font-medium text-[#24202B]">
+          <span className="w-2.5 h-2.5 rounded-full bg-[#6C4AB6]"></span> Start
         </div>
-        <div className="flex items-center gap-1.5 font-medium text-slate-700">
-          <span className="w-2.5 h-2.5 rounded-full bg-rose-600"></span> Destination
+        <div className="flex items-center gap-1.5 font-medium text-[#24202B]">
+          <span className="w-2.5 h-2.5 rounded-full bg-[#E88BA5]"></span> Destination
         </div>
-        <div className="flex items-center gap-1.5 font-medium text-slate-700">
-          <span className="w-3 h-1 bg-teal-700 rounded-full"></span> Recommended Route
+        <div className="flex items-center gap-1.5 font-medium text-[#24202B]">
+          <span className="w-3 h-1 bg-[#6C4AB6] rounded-full"></span> Recommended Route
         </div>
       </div>
     </div>

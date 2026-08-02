@@ -79,7 +79,7 @@ export const SharedJourneyPage: React.FC<SharedJourneyPageProps> = ({ shareToken
           onClick={onGoHome}
           className="px-5 py-2.5 rounded-xl font-bold text-xs bg-teal-700 text-white hover:bg-teal-800"
         >
-          Go to SafeRoute Circle
+          Go to HerShield
         </button>
       </div>
     );

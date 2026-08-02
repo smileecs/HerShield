@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Journey, Coordinate } from '../types';
-import { ShieldCheck, Heart, Power, MapPin, Clock, Share2, Copy, Check, Play, Pause, FastForward, AlertTriangle, ExternalLink } from 'lucide-react';
+import { Heart, Power, MapPin, Clock, Share2, Copy, Check, Play, Pause, FastForward, AlertTriangle, ExternalLink } from 'lucide-react';
 import { LeafletMap } from '../components/LeafletMap';
 import { apiCompleteJourney, apiEndJourney, apiUpdateLocation, getSocket } from '../services/api';
 
@@ -153,29 +154,29 @@ export const ActiveJourneyPage: React.FC<ActiveJourneyPageProps> = ({
       <section className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-emerald-500 animate-ping"></span>
-            <span className="text-xs font-black uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-              Journey Active 🟢
+            <span className="w-2.5 h-2.5 rounded-full bg-[#2E9B67] animate-green-pulse"></span>
+            <span className="text-xs font-black uppercase tracking-wider text-[#2E9B67] bg-[#EBF7F1] px-2.5 py-1 rounded-full border border-[#2E9B67]/20 flex items-center gap-1.5">
+              <span>🟢 Live Journey Active</span>
             </span>
           </div>
-          <h1 className="text-2xl font-black text-slate-900 mt-1">
+          <h1 className="text-2xl font-black text-[#24202B] mt-1">
             En Route to {journey.destination.address}
           </h1>
-          <p className="text-xs text-slate-500">
-            From: <span className="font-semibold text-slate-700">{journey.startLocation.address}</span>
+          <p className="text-xs text-[#756D82]">
+            From: <span className="font-semibold text-[#24202B]">{journey.startLocation.address}</span>
           </p>
         </div>
 
         {/* SHARED WITH BADGES */}
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="font-bold text-slate-500">Shared with:</span>
+          <span className="font-bold text-[#756D82]">Shared with:</span>
           {journey.trustedContacts.length === 0 ? (
-            <span className="text-slate-400 italic">No contacts selected</span>
+            <span className="text-[#756D82] italic">No contacts selected</span>
           ) : (
             journey.trustedContacts.map((tc) => (
               <span
                 key={tc.id || tc.name}
-                className="px-3 py-1 rounded-full bg-rose-50 text-rose-800 font-extrabold border border-rose-200 flex items-center gap-1.5"
+                className="px-3 py-1 rounded-full bg-[#F8F6FC] text-[#6C4AB6] font-extrabold border border-[#6C4AB6]/20 flex items-center gap-1.5"
               >
                 <span>👩</span>
                 <span>{tc.name}</span>
@@ -191,26 +192,26 @@ export const ActiveJourneyPage: React.FC<ActiveJourneyPageProps> = ({
         <div className="lg:col-span-8 space-y-4">
           <div className="bg-white p-4 rounded-3xl border border-slate-200/80 shadow-xs space-y-3">
             <div className="flex items-center justify-between text-xs px-2">
-              <div className="flex items-center gap-2 font-bold text-slate-800">
-                <MapPin className="w-4 h-4 text-emerald-600 animate-bounce" />
-                <span>Live Location Map</span>
+              <div className="flex items-center gap-2 font-bold text-[#24202B]">
+                <MapPin className="w-4 h-4 text-[#2E9B67] animate-bounce" />
+                <span>Live GPS Route Tracker</span>
               </div>
 
               {/* SIMULATION CONTROLS FOR DEMO */}
-              <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl">
+              <div className="flex items-center gap-2 bg-[#F8F6FC] p-1 rounded-xl">
                 <button
                   onClick={() => setIsSimulating(!isSimulating)}
-                  className="px-2 py-1 rounded-lg text-[11px] font-bold bg-white text-slate-800 shadow-xs flex items-center gap-1"
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white text-[#24202B] shadow-xs flex items-center gap-1 cursor-pointer hover:text-[#6C4AB6]"
                 >
-                  {isSimulating ? <Pause className="w-3 h-3 text-amber-600" /> : <Play className="w-3 h-3 text-emerald-600" />}
+                  {isSimulating ? <Pause className="w-3 h-3 text-[#D99A24]" /> : <Play className="w-3 h-3 text-[#2E9B67]" />}
                   <span>{isSimulating ? 'Pause GPS' : 'Resume GPS'}</span>
                 </button>
 
                 <button
                   onClick={() => setSimSpeed(simSpeed === 1 ? 2 : simSpeed === 2 ? 5 : 1)}
-                  className="px-2 py-1 rounded-lg text-[11px] font-bold bg-white text-teal-800 shadow-xs flex items-center gap-1"
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white text-[#6C4AB6] shadow-xs flex items-center gap-1 cursor-pointer"
                 >
-                  <FastForward className="w-3 h-3 text-teal-700" />
+                  <FastForward className="w-3 h-3 text-[#6C4AB6]" />
                   <span>{simSpeed}x Speed</span>
                 </button>
               </div>
@@ -223,19 +224,19 @@ export const ActiveJourneyPage: React.FC<ActiveJourneyPageProps> = ({
               destination={journey.destination}
               currentLocation={currentLoc}
               isJourneyActive={true}
-              className="h-[420px] sm:h-[480px] w-full rounded-2xl"
+              className="h-[420px] sm:h-[480px] w-full rounded-2xl overflow-hidden"
             />
 
             {/* PROGRESS BAR */}
             <div className="space-y-2 pt-2 px-2">
-              <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+              <div className="flex items-center justify-between text-xs font-bold text-[#24202B]">
                 <span>Journey Progress</span>
-                <span className="text-emerald-700">{Math.round(progress)}% Completed</span>
+                <span className="text-[#2E9B67]">{Math.round(progress)}% Completed</span>
               </div>
 
-              <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden p-0.5 border border-slate-200">
+              <div className="w-full bg-[#F8F6FC] rounded-full h-3 overflow-hidden p-0.5 border border-slate-200">
                 <div
-                  className="bg-gradient-to-r from-teal-700 via-emerald-600 to-emerald-400 h-full rounded-full transition-all duration-500 shadow-xs"
+                  className="bg-gradient-to-r from-[#6C4AB6] via-[#E88BA5] to-[#2E9B67] h-full rounded-full transition-all duration-500 shadow-xs"
                   style={{ width: `${Math.min(100, Math.max(2, progress))}%` }}
                 ></div>
               </div>
@@ -247,11 +248,11 @@ export const ActiveJourneyPage: React.FC<ActiveJourneyPageProps> = ({
         <div className="lg:col-span-4 space-y-6">
           {/* ACTION BUTTONS: I'M SAFE / END JOURNEY */}
           <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
-            <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Journey Controls</h3>
+            <h3 className="text-sm font-bold text-[#24202B] uppercase tracking-wider">Journey Controls</h3>
 
             <button
               onClick={handleConfirmSafe}
-              className="w-full py-4 rounded-2xl font-black text-base bg-emerald-600 text-white hover:bg-emerald-700 active:scale-98 transition-all shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2.5"
+              className="w-full py-4 rounded-2xl font-black text-base bg-[#2E9B67] text-white hover:bg-[#258356] active:scale-95 transition-all shadow-md shadow-[#2E9B67]/20 flex items-center justify-center gap-2.5 cursor-pointer"
             >
               <Heart className="w-5 h-5 fill-white" />
               <span>💚 I’m Safe</span>
@@ -259,7 +260,7 @@ export const ActiveJourneyPage: React.FC<ActiveJourneyPageProps> = ({
 
             <button
               onClick={() => setShowEndModal(true)}
-              className="w-full py-3 rounded-2xl font-bold text-xs bg-slate-100 text-slate-700 hover:bg-rose-50 hover:text-rose-700 transition-colors border border-slate-200 flex items-center justify-center gap-2"
+              className="w-full py-3 rounded-2xl font-bold text-xs bg-[#F8F6FC] text-[#24202B] hover:bg-[#FDF2F2] hover:text-[#D9535B] transition-colors border border-slate-200 flex items-center justify-center gap-2 cursor-pointer"
             >
               <Power className="w-4 h-4" />
               <span>End Journey Early</span>
@@ -267,45 +268,45 @@ export const ActiveJourneyPage: React.FC<ActiveJourneyPageProps> = ({
 
             <button
               onClick={() => setShowArrivalModal(true)}
-              className="w-full py-2 rounded-xl text-[11px] font-bold text-teal-800 bg-teal-50 hover:bg-teal-100 transition-colors"
+              className="w-full py-2 rounded-xl text-[11px] font-bold text-[#6C4AB6] bg-[#F8F6FC] hover:bg-[#6C4AB6]/10 transition-colors cursor-pointer"
             >
               Simulate Arrival Check Prompt
             </button>
           </div>
 
           {/* TRIP DETAILS & ETA */}
-          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs space-y-4 text-xs text-slate-700">
-            <h3 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
-              <Clock className="w-4 h-4 text-teal-700" />
+          <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs space-y-4 text-xs text-[#756D82]">
+            <h3 className="font-bold text-[#24202B] text-sm flex items-center gap-1.5">
+              <Clock className="w-4 h-4 text-[#6C4AB6]" />
               <span>Trip Metrics</span>
             </h3>
 
             <div className="space-y-3 font-medium">
-              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50">
-                <span className="text-slate-500">Estimated Arrival:</span>
-                <span className="font-extrabold text-slate-900 text-sm">{arrivalTimeFormatted}</span>
+              <div className="flex items-center justify-between p-3 rounded-xl bg-[#F8F6FC]">
+                <span>Estimated Arrival:</span>
+                <span className="font-extrabold text-[#24202B] text-sm">{arrivalTimeFormatted}</span>
               </div>
 
-              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50">
-                <span className="text-slate-500">Selected Route:</span>
-                <span className="font-bold text-teal-800">{journey.selectedRoute.name}</span>
+              <div className="flex items-center justify-between p-3 rounded-xl bg-[#F8F6FC]">
+                <span>Selected Route:</span>
+                <span className="font-bold text-[#6C4AB6]">{journey.selectedRoute.name}</span>
               </div>
 
-              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50">
-                <span className="text-slate-500">Safety Info Score:</span>
-                <span className="font-extrabold text-emerald-700">{journey.selectedRoute.safetyScore}/100</span>
+              <div className="flex items-center justify-between p-3 rounded-xl bg-[#F8F6FC]">
+                <span>Safety Info Score:</span>
+                <span className="font-extrabold text-[#2E9B67]">{journey.selectedRoute.safetyScore}/100</span>
               </div>
             </div>
           </div>
 
           {/* PUBLIC SHARE LINK CARD */}
-          <div className="bg-gradient-to-br from-teal-900 to-slate-900 p-6 rounded-3xl text-white space-y-4 shadow-md">
-            <div className="flex items-center gap-2 text-teal-200 text-xs font-bold uppercase tracking-wider">
-              <Share2 className="w-4 h-4 text-teal-300" />
+          <div className="bg-gradient-to-br from-[#43266F] to-[#24202B] p-6 rounded-3xl text-white space-y-4 shadow-md">
+            <div className="flex items-center gap-2 text-[#E88BA5] text-xs font-bold uppercase tracking-wider">
+              <Share2 className="w-4 h-4 text-[#E88BA5]" />
               <span>Trusted Contact Link</span>
             </div>
 
-            <p className="text-xs text-teal-100 leading-relaxed">
+            <p className="text-xs text-[#F8F6FC]/80 leading-relaxed">
               Anyone with this secure link can follow your live journey status without registering.
             </p>
 
@@ -318,10 +319,10 @@ export const ActiveJourneyPage: React.FC<ActiveJourneyPageProps> = ({
               />
               <button
                 onClick={handleCopyLink}
-                className="p-2.5 bg-white text-teal-900 hover:bg-teal-50 rounded-xl font-bold text-xs shrink-0 transition-colors"
+                className="p-2.5 bg-white text-[#43266F] hover:bg-[#F8F6FC] rounded-xl font-bold text-xs shrink-0 transition-colors cursor-pointer"
                 title="Copy Link"
               >
-                {copiedLink ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                {copiedLink ? <Check className="w-4 h-4 text-[#2E9B67]" /> : <Copy className="w-4 h-4" />}
               </button>
             </div>
 
@@ -329,7 +330,7 @@ export const ActiveJourneyPage: React.FC<ActiveJourneyPageProps> = ({
               href={shareUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs font-bold text-teal-200 hover:text-white pt-1"
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-[#E88BA5] hover:text-white pt-1"
             >
               <span>Preview Trusted Contact View</span>
               <ExternalLink className="w-3.5 h-3.5" />
@@ -339,75 +340,97 @@ export const ActiveJourneyPage: React.FC<ActiveJourneyPageProps> = ({
       </div>
 
       {/* ARRIVAL CHECK MODAL */}
-      {showArrivalModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-fade-in">
-          <div className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-100 p-8 text-center space-y-6">
-            <div className="w-16 h-16 rounded-3xl bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-inner text-2xl">
-              🏁
-            </div>
+      <AnimatePresence>
+        {showArrivalModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#24202B]/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-100 p-8 text-center space-y-6"
+            >
+              <div className="w-16 h-16 rounded-3xl bg-[#EBF7F1] text-[#2E9B67] flex items-center justify-center mx-auto shadow-inner text-2xl relative">
+                <svg className="w-10 h-10 text-[#2E9B67]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="3"
+                    d="M5 13l4 4L19 7"
+                    className="drawCheck"
+                  />
+                </svg>
+              </div>
 
-            <div className="space-y-2">
-              <h3 className="text-xl font-black text-slate-900">Have you reached your destination?</h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Confirm your safe arrival to notify your trusted circle and complete location sharing.
-              </p>
-            </div>
+              <div className="space-y-2">
+                <h3 className="text-xl font-black text-[#24202B]">Have you reached your destination?</h3>
+                <p className="text-xs text-[#756D82] leading-relaxed">
+                  Confirm your safe arrival to notify your trusted circle and complete location sharing.
+                </p>
+              </div>
 
-            <div className="space-y-3 pt-2">
-              <button
-                onClick={() => {
-                  setShowArrivalModal(false);
-                  handleConfirmSafe();
-                }}
-                className="w-full py-4 rounded-2xl font-black text-sm bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2"
-              >
-                <Heart className="w-5 h-5 fill-white" />
-                <span>Yes, I’m Safe</span>
-              </button>
+              <div className="space-y-3 pt-2">
+                <button
+                  onClick={() => {
+                    setShowArrivalModal(false);
+                    handleConfirmSafe();
+                  }}
+                  className="w-full py-4 rounded-2xl font-black text-sm bg-[#2E9B67] text-white hover:bg-[#258356] shadow-md shadow-[#2E9B67]/20 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Heart className="w-5 h-5 fill-white" />
+                  <span>Yes, I’m Safe</span>
+                </button>
 
-              <button
-                onClick={() => {
-                  setShowArrivalModal(false);
-                  showToast('Sending journey alert reminder to trusted contacts...', 'warning');
-                }}
-                className="w-full py-3 rounded-2xl font-bold text-xs bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200 flex items-center justify-center gap-2"
-              >
-                <AlertTriangle className="w-4 h-4 text-amber-600" />
-                <span>I Need Help / Remind Me</span>
-              </button>
-            </div>
+                <button
+                  onClick={() => {
+                    setShowArrivalModal(false);
+                    showToast('Sending journey alert reminder to trusted contacts...', 'warning');
+                  }}
+                  className="w-full py-3 rounded-2xl font-bold text-xs bg-[#FEF8EC] text-[#D99A24] hover:bg-[#FEF8EC]/80 border border-[#D99A24]/20 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <AlertTriangle className="w-4 h-4 text-[#D99A24]" />
+                  <span>I Need Help / Remind Me</span>
+                </button>
+              </div>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
 
       {/* END JOURNEY CONFIRMATION MODAL */}
-      {showEndModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 text-center space-y-4">
-            <h3 className="text-lg font-black text-slate-900">End Location Sharing?</h3>
-            <p className="text-xs text-slate-600">
-              This will stop sharing your active location with your trusted contacts.
-            </p>
-            <div className="flex items-center gap-3 pt-2">
-              <button
-                onClick={() => setShowEndModal(false)}
-                className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-slate-100 text-slate-700"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  setShowEndModal(false);
-                  handleEndJourney();
-                }}
-                className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-rose-600 text-white hover:bg-rose-700"
-              >
-                Yes, Stop Sharing
-              </button>
-            </div>
+      <AnimatePresence>
+        {showEndModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#24202B]/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 text-center space-y-4"
+            >
+              <h3 className="text-lg font-black text-[#24202B]">End Location Sharing?</h3>
+              <p className="text-xs text-[#756D82]">
+                This will stop sharing your active location with your trusted contacts.
+              </p>
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  onClick={() => setShowEndModal(false)}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-[#F8F6FC] text-[#24202B] cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    setShowEndModal(false);
+                    handleEndJourney();
+                  }}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-[#D9535B] text-white hover:bg-[#b8424a] cursor-pointer"
+                >
+                  Yes, Stop Sharing
+                </button>
+              </div>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
     </div>
   );
 };

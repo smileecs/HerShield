@@ -17,11 +17,11 @@ export const Footer: React.FC<FooterProps> = ({ setActiveTab }) => {
                 <Shield className="w-5 h-5 fill-teal-200 stroke-[2.2]" />
               </div>
               <span className="font-extrabold text-xl text-white tracking-tight">
-                SafeRoute <span className="text-teal-400">Circle</span>
+                Her<span className="text-teal-400">Shield</span>
               </span>
             </div>
             <p className="text-sm text-slate-400 leading-relaxed max-w-md">
-              SafeRoute Circle empowers women to travel smarter using safety-related route comparison data and stay safely connected with their trusted circle during active journeys.
+              HerShield empowers women to travel smarter using safety-related route comparison data and stay safely connected with their trusted circle during active journeys.
             </p>
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 text-xs text-teal-300 border border-slate-700/80">
               <Lock className="w-3.5 h-3.5 text-emerald-400" />

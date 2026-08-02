@@ -54,7 +54,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, contacts, onLogo
             <span>{user.email}</span>
           </p>
           <p className="text-[11px] text-teal-800 font-bold pt-1">
-            Verified SafeRoute Circle Member
+            Verified HerShield Member
           </p>
         </div>
 

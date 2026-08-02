@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { MapPin, Navigation, Search, Info, Shield, Check, AlertCircle, Sparkles, SlidersHorizontal, ArrowRight } from 'lucide-react';
+import { motion } from 'motion/react';
+import { MapPin, Navigation, Search, Info, SlidersHorizontal, ArrowRight } from 'lucide-react';
 import { RouteOption } from '../types';
 import { LeafletMap } from '../components/LeafletMap';
 import { SAMPLE_ROUTES, SAMPLE_LOCATIONS } from '../data/mockData';
@@ -61,19 +62,17 @@ export const SafeRoutePage: React.FC<SafeRoutePageProps> = ({ onSelectRouteForJo
     }, 600);
   };
 
-  const selectedRouteObj = activeRoutes.find((r) => r.id === selectedRouteId) || activeRoutes[0];
-
   return (
     <div className="space-y-8 pb-12">
       {/* HEADER & INPUT FORM */}
       <section className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-xs space-y-6">
         <div>
-          <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-teal-800 mb-1">
-            <Navigation className="w-4 h-4 text-teal-700" />
+          <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-[#6C4AB6] mb-1">
+            <Navigation className="w-4 h-4 text-[#6C4AB6]" />
             <span>Route Safety Planner</span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black text-slate-900">Plan Your Journey</h1>
-          <p className="text-xs sm:text-sm text-slate-600 mt-1">
+          <h1 className="text-2xl sm:text-3xl font-black text-[#24202B]">Plan Your Journey</h1>
+          <p className="text-xs sm:text-sm text-[#756D82] mt-1">
             Compare route options using facility density, lighting ratings, and reported incident levels.
           </p>
         </div>
@@ -81,40 +80,40 @@ export const SafeRoutePage: React.FC<SafeRoutePageProps> = ({ onSelectRouteForJo
         <form onSubmit={handleFindRoutes} className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-end">
           {/* Starting Point */}
           <div className="lg:col-span-5 space-y-1.5">
-            <label className="block text-xs font-bold text-slate-700 flex items-center justify-between">
+            <label className="block text-xs font-bold text-[#24202B] flex items-center justify-between">
               <span>Starting Point</span>
               <button
                 type="button"
                 onClick={handleUseCurrentLocation}
-                className="text-[11px] text-teal-700 hover:text-teal-900 font-bold flex items-center gap-1"
+                className="text-[11px] text-[#6C4AB6] hover:text-[#43266F] font-bold flex items-center gap-1 cursor-pointer"
               >
-                <MapPin className="w-3 h-3 text-teal-700" />
+                <MapPin className="w-3 h-3 text-[#6C4AB6]" />
                 <span>Use Current Location</span>
               </button>
             </label>
             <div className="relative">
-              <MapPin className="absolute left-3.5 top-3 w-4 h-4 text-teal-700" />
+              <MapPin className="absolute left-3.5 top-3 w-4 h-4 text-[#6C4AB6]" />
               <input
                 type="text"
                 value={startInput}
                 onChange={(e) => setStartInput(e.target.value)}
                 placeholder="Enter starting location"
-                className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-600 font-medium text-slate-800"
+                className="w-full pl-10 pr-3 py-2.5 bg-[#F8F6FC] border border-slate-200 rounded-xl text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#6C4AB6] font-medium text-[#24202B]"
               />
             </div>
           </div>
 
           {/* Destination */}
           <div className="lg:col-span-5 space-y-1.5">
-            <label className="block text-xs font-bold text-slate-700">Destination</label>
+            <label className="block text-xs font-bold text-[#24202B]">Destination</label>
             <div className="relative">
-              <Search className="absolute left-3.5 top-3 w-4 h-4 text-rose-600" />
+              <Search className="absolute left-3.5 top-3 w-4 h-4 text-[#E88BA5]" />
               <input
                 type="text"
                 value={destInput}
                 onChange={(e) => setDestInput(e.target.value)}
                 placeholder="Search destination address or landmark"
-                className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500 font-medium text-slate-800"
+                className="w-full pl-10 pr-3 py-2.5 bg-[#F8F6FC] border border-slate-200 rounded-xl text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#E88BA5] font-medium text-[#24202B]"
               />
             </div>
           </div>
@@ -124,7 +123,7 @@ export const SafeRoutePage: React.FC<SafeRoutePageProps> = ({ onSelectRouteForJo
             <button
               type="submit"
               disabled={isSearching}
-              className="w-full py-2.5 px-4 rounded-xl font-bold text-sm bg-teal-700 text-white hover:bg-teal-800 active:scale-98 transition-all shadow-md shadow-teal-700/20 flex items-center justify-center gap-2"
+              className="btn-primary-glow w-full py-2.5 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 active:scale-95 shadow-xs cursor-pointer"
             >
               {isSearching ? (
                 <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
@@ -143,23 +142,26 @@ export const SafeRoutePage: React.FC<SafeRoutePageProps> = ({ onSelectRouteForJo
       <section className="bg-white p-4 sm:p-6 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-2">
           <div>
-            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+            <h3 className="text-base font-bold text-[#24202B] flex items-center gap-2">
               <span>Route Safety Map</span>
-              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-teal-100 text-teal-800">
+              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-[#F8F6FC] text-[#6C4AB6] border border-[#6C4AB6]/20">
                 {activeRoutes.length} options mapped
               </span>
             </h3>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-[#756D82]">
               Click any route line on the map or select a route card below to view details.
             </p>
           </div>
 
-          <div className="flex items-center gap-2 text-xs text-slate-600">
-            <span className="flex items-center gap-1 font-semibold">
-              <span className="w-3 h-3 rounded-full bg-emerald-500"></span> 80+ Score
+          <div className="flex items-center gap-3 text-xs text-[#756D82]">
+            <span className="flex items-center gap-1.5 font-semibold">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#2E9B67] animate-green-pulse"></span> 🟢 High Info
             </span>
-            <span className="flex items-center gap-1 font-semibold">
-              <span className="w-3 h-3 rounded-full bg-amber-500"></span> Moderate Score
+            <span className="flex items-center gap-1.5 font-semibold">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#D99A24]"></span> 🟡 Moderate
+            </span>
+            <span className="flex items-center gap-1.5 font-semibold">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#D9535B]"></span> 🔴 Concerns
             </span>
           </div>
         </div>
@@ -170,49 +172,55 @@ export const SafeRoutePage: React.FC<SafeRoutePageProps> = ({ onSelectRouteForJo
           onSelectRoute={setSelectedRouteId}
           startLocation={startCoords}
           destination={destCoords}
-          className="h-[400px] sm:h-[460px] w-full rounded-2xl"
+          className="h-[400px] sm:h-[460px] w-full rounded-2xl overflow-hidden"
         />
       </section>
 
       {/* ROUTE CARDS GRID */}
       <section className="space-y-6">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl sm:text-2xl font-black text-slate-900">Available Route Options</h2>
-          <div className="flex items-center gap-1 text-xs text-slate-500 font-medium">
-            <SlidersHorizontal className="w-3.5 h-3.5" />
+          <h2 className="text-xl sm:text-2xl font-black text-[#24202B]">Available Route Options</h2>
+          <div className="flex items-center gap-1 text-xs text-[#756D82] font-medium">
+            <SlidersHorizontal className="w-3.5 h-3.5 text-[#6C4AB6]" />
             <span>Sorted by Safety Information Score</span>
           </div>
         </div>
 
         {/* Disclaimer banner */}
-        <div className="p-3.5 rounded-2xl bg-amber-50/90 border border-amber-200/80 text-amber-950 text-xs flex items-start gap-3">
-          <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+        <div className="p-3.5 rounded-2xl bg-[#F8F6FC] border border-[#6C4AB6]/20 text-[#24202B] text-xs flex items-start gap-3">
+          <Info className="w-4 h-4 text-[#6C4AB6] shrink-0 mt-0.5" />
           <div>
-            <span className="font-bold">Important Disclaimer:</span> Safety information scores are estimates based on available facility data, lighting infrastructure, and user community inputs. They do not guarantee personal safety.
+            <span className="font-bold text-[#6C4AB6]">Important Disclaimer:</span> Safety information scores are estimates based on available facility data, lighting infrastructure, and user community inputs. They do not guarantee personal safety.
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {activeRoutes.map((route) => {
+          {activeRoutes.map((route, idx) => {
             const isSelected = route.id === selectedRouteId;
+            const isHighSafety = route.safetyScore >= 80;
+            const isModerateSafety = route.safetyScore >= 65 && route.safetyScore < 80;
+
             return (
-              <div
+              <motion.div
                 key={route.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.1, duration: 0.4 }}
                 onClick={() => setSelectedRouteId(route.id)}
-                className={`relative p-6 rounded-3xl transition-all cursor-pointer border flex flex-col justify-between ${
+                className={`relative p-6 rounded-3xl transition-all cursor-pointer border flex flex-col justify-between card-hover ${
                   isSelected
-                    ? 'bg-white border-teal-700 ring-2 ring-teal-600/30 shadow-lg'
-                    : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-xs'
+                    ? 'bg-white border-[#6C4AB6] ring-2 ring-[#6C4AB6]/25 shadow-xl shadow-[#6C4AB6]/10'
+                    : 'bg-white border-slate-200/80 hover:border-[#6C4AB6]/40 shadow-xs'
                 }`}
               >
                 {route.tag && (
                   <span
                     className={`absolute -top-3 left-6 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider text-white shadow-xs ${
                       route.tag === 'Recommended'
-                        ? 'bg-teal-700'
+                        ? 'bg-[#6C4AB6]'
                         : route.tag === 'Fastest'
-                        ? 'bg-blue-600'
-                        : 'bg-slate-700'
+                        ? 'bg-[#43266F]'
+                        : 'bg-[#756D82]'
                     }`}
                   >
                     {route.tag}
@@ -221,65 +229,80 @@ export const SafeRoutePage: React.FC<SafeRoutePageProps> = ({ onSelectRouteForJo
 
                 <div className="space-y-4 pt-2">
                   <div>
-                    <h3 className="text-base font-bold text-slate-900">{route.name}</h3>
-                    <div className="flex items-center gap-3 text-xs text-slate-500 font-semibold mt-1">
+                    <h3 className="text-base font-bold text-[#24202B]">{route.name}</h3>
+                    <div className="flex items-center gap-3 text-xs text-[#756D82] font-semibold mt-1">
                       <span>📏 {route.distanceKm} km</span>
                       <span>⏱️ {route.durationMin} mins</span>
                     </div>
                   </div>
 
                   {/* Safety Score Box */}
-                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between">
+                  <div className="p-3.5 rounded-2xl bg-[#F8F6FC] border border-slate-200/60 flex items-center justify-between">
                     <div>
-                      <span className="text-[11px] font-bold text-slate-500 block uppercase tracking-wider">
+                      <span className="text-[11px] font-bold text-[#756D82] block uppercase tracking-wider">
                         Safety Info Score
                       </span>
                       <span
                         className={`text-2xl font-black ${
-                          route.safetyScore >= 80
-                            ? 'text-emerald-600'
-                            : route.safetyScore >= 70
-                            ? 'text-amber-600'
-                            : 'text-rose-600'
+                          isHighSafety
+                            ? 'text-[#2E9B67]'
+                            : isModerateSafety
+                            ? 'text-[#D99A24]'
+                            : 'text-[#D9535B]'
                         }`}
                       >
                         {route.safetyScore}
-                        <span className="text-xs font-normal text-slate-400">/100</span>
+                        <span className="text-xs font-normal text-[#756D82]">/100</span>
                       </span>
                     </div>
 
                     <div className="text-right">
                       <span
-                        className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-extrabold ${
-                          route.safetyBadgeColor === 'green'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-amber-100 text-amber-800'
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-extrabold ${
+                          isHighSafety
+                            ? 'bg-[#EBF7F1] text-[#2E9B67]'
+                            : isModerateSafety
+                            ? 'bg-[#FEF8EC] text-[#D99A24]'
+                            : 'bg-[#FDF2F2] text-[#D9535B]'
                         }`}
                       >
-                        {route.safetyBadgeColor === 'green' ? '🟢 Higher Safety Info' : '🟡 Moderate Safety Info'}
+                        <span
+                          className={`w-2 h-2 rounded-full ${
+                            isHighSafety
+                              ? 'bg-[#2E9B67] animate-green-pulse'
+                              : isModerateSafety
+                              ? 'bg-[#D99A24]'
+                              : 'bg-[#D9535B]'
+                          }`}
+                        />
+                        {isHighSafety
+                          ? '🟢 Higher Safety Info'
+                          : isModerateSafety
+                          ? '🟡 Moderate'
+                          : '🔴 Concerns Reported'}
                       </span>
                     </div>
                   </div>
 
                   {/* Details Bullet List */}
-                  <ul className="space-y-2 text-xs text-slate-600 font-medium">
+                  <ul className="space-y-2 text-xs text-[#756D82] font-medium">
                     <li className="flex items-center justify-between">
-                      <span className="text-slate-500">Public Facilities:</span>
-                      <span className="font-bold text-slate-800">{route.publicFacilitiesCount} nearby</span>
+                      <span>Public Facilities:</span>
+                      <span className="font-bold text-[#24202B]">{route.publicFacilitiesCount} nearby</span>
                     </li>
                     <li className="flex items-center justify-between">
-                      <span className="text-slate-500">Main Road Coverage:</span>
-                      <span className="font-bold text-slate-800">{route.mainRoadPercentage}%</span>
+                      <span>Main Road Coverage:</span>
+                      <span className="font-bold text-[#24202B]">{route.mainRoadPercentage}%</span>
                     </li>
                     <li className="flex items-center justify-between">
-                      <span className="text-slate-500">Lighting Quality:</span>
-                      <span className="font-bold text-slate-800">{route.lightingRating}</span>
+                      <span>Lighting Quality:</span>
+                      <span className="font-bold text-[#24202B]">{route.lightingRating}</span>
                     </li>
                     <li className="flex items-center justify-between">
-                      <span className="text-slate-500">Reported Incidents:</span>
+                      <span>Reported Incidents:</span>
                       <span
                         className={`font-bold ${
-                          route.reportedIncidentsNearby === 'Low' ? 'text-emerald-700' : 'text-amber-700'
+                          route.reportedIncidentsNearby === 'Low' ? 'text-[#2E9B67]' : 'text-[#D99A24]'
                         }`}
                       >
                         {route.reportedIncidentsNearby}
@@ -294,17 +317,17 @@ export const SafeRoutePage: React.FC<SafeRoutePageProps> = ({ onSelectRouteForJo
                       e.stopPropagation();
                       onSelectRouteForJourney(route, startCoords, destCoords);
                     }}
-                    className={`w-full py-3 px-4 rounded-xl font-bold text-xs transition-all shadow-md flex items-center justify-center gap-2 ${
+                    className={`w-full py-3 px-4 rounded-xl font-bold text-xs transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer ${
                       isSelected
-                        ? 'bg-teal-700 text-white hover:bg-teal-800 shadow-teal-700/20'
-                        : 'bg-slate-100 text-slate-800 hover:bg-teal-50 hover:text-teal-800'
+                        ? 'btn-primary-glow shadow-md'
+                        : 'bg-[#F8F6FC] text-[#24202B] hover:bg-[#6C4AB6]/10 hover:text-[#6C4AB6]'
                     }`}
                   >
                     <span>Select Route</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </button>
                 </div>
-              </div>
+              </motion.div>
             );
           })}
         </div>
@@ -312,10 +335,10 @@ export const SafeRoutePage: React.FC<SafeRoutePageProps> = ({ onSelectRouteForJo
 
       {/* COMPARISON MATRIX BREAKDOWN */}
       <section className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
-        <h3 className="text-lg font-bold text-slate-900">Side-By-Side Comparison Matrix</h3>
+        <h3 className="text-lg font-bold text-[#24202B]">Side-By-Side Comparison Matrix</h3>
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs text-slate-700">
-            <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-extrabold text-[10px]">
+          <table className="w-full text-left text-xs text-[#756D82]">
+            <thead className="bg-[#F8F6FC] border-b border-slate-200 text-[#756D82] uppercase font-extrabold text-[10px]">
               <tr>
                 <th className="p-3">Route Name</th>
                 <th className="p-3">Distance</th>
@@ -328,11 +351,11 @@ export const SafeRoutePage: React.FC<SafeRoutePageProps> = ({ onSelectRouteForJo
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium">
               {activeRoutes.map((r) => (
-                <tr key={r.id} className={r.id === selectedRouteId ? 'bg-teal-50/60 font-bold' : ''}>
-                  <td className="p-3 text-slate-900">{r.name}</td>
+                <tr key={r.id} className={r.id === selectedRouteId ? 'bg-[#F8F6FC] font-bold text-[#24202B]' : ''}>
+                  <td className="p-3 text-[#24202B]">{r.name}</td>
                   <td className="p-3">{r.distanceKm} km</td>
                   <td className="p-3">{r.durationMin} mins</td>
-                  <td className="p-3 font-extrabold text-teal-800">{r.safetyScore}/100</td>
+                  <td className="p-3 font-extrabold text-[#6C4AB6]">{r.safetyScore}/100</td>
                   <td className="p-3">{r.lightingRating}</td>
                   <td className="p-3">{r.publicFacilitiesCount} data points</td>
                   <td className="p-3">{r.reportedIncidentsNearby}</td>

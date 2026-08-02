@@ -1,5 +1,5 @@
 {
-  "name": "SafeRoute Circle",
+  "name": "HerShield",
   "description": "A modern women-safety platform for comparing safe travel routes and sharing live journey status with trusted contacts.",
   "requestFramePermissions": ["geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

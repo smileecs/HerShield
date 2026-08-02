@@ -80,7 +80,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
             <Shield className="w-6 h-6 fill-white/30 stroke-white stroke-[2.2]" />
           </div>
           <h3 className="text-xl font-extrabold tracking-tight">
-            {mode === 'login' ? 'Welcome Back' : 'Join SafeRoute Circle'}
+            {mode === 'login' ? 'Welcome Back' : 'Join HerShield'}
           </h3>
           <p className="text-xs text-teal-100 mt-1">
             {mode === 'login'

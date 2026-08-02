@@ -9,9 +9,9 @@ export const AboutPage: React.FC = () => {
         <div className="w-12 h-12 rounded-2xl bg-teal-100 text-teal-800 flex items-center justify-center mx-auto">
           <Shield className="w-6 h-6" />
         </div>
-        <h1 className="text-3xl font-black text-slate-900 tracking-tight">About SafeRoute Circle</h1>
+        <h1 className="text-3xl font-black text-slate-900 tracking-tight">About HerShield</h1>
         <p className="text-sm text-slate-600 max-w-2xl mx-auto leading-relaxed">
-          SafeRoute Circle is a modern safety-technology application engineered for women's safe urban mobility. It pairs facility-driven route safety scoring with active journey status sharing.
+          HerShield is a modern safety-technology application engineered for women's safe urban mobility. It pairs facility-driven route safety scoring with active journey status sharing.
         </p>
       </section>
 

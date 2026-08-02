@@ -1,1 +1,137 @@
 @import "tailwindcss";
+
+@theme {
+  --color-primary: #6C4AB6;
+  --color-primary-dark: #43266F;
+  --color-accent-rose: #E88BA5;
+  --color-bg-lavender: #F8F6FC;
+  --color-text-main: #24202B;
+  --color-text-secondary: #756D82;
+  --color-brand-success: #2E9B67;
+  --color-brand-warning: #D99A24;
+  --color-brand-danger: #D9535B;
+}
+
+:root {
+  --p-purple: #6C4AB6;
+  --p-dark: #43266F;
+  --p-rose: #E88BA5;
+  --p-bg: #F8F6FC;
+  --p-text: #24202B;
+  --p-text-muted: #756D82;
+  --p-success: #2E9B67;
+  --p-warning: #D99A24;
+  --p-danger: #D9535B;
+}
+
+body {
+  background-color: #F8F6FC;
+  color: #24202B;
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
+  overflow-x: hidden;
+}
+
+/* Custom Pulsing Circular Ring for Current Location */
+@keyframes ringPulse {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(108, 74, 182, 0.5);
+  }
+  70% {
+    transform: scale(1.15);
+    box-shadow: 0 0 0 16px rgba(108, 74, 182, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(108, 74, 182, 0);
+  }
+}
+
+@keyframes greenPulse {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(46, 155, 103, 0.6);
+  }
+  70% {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 12px rgba(46, 155, 103, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(46, 155, 103, 0);
+  }
+}
+
+@keyframes drawCheck {
+  0% {
+    stroke-dashoffset: 24;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+.animate-ring-pulse {
+  animation: ringPulse 2.5s infinite ease-in-out;
+}
+
+.animate-green-pulse {
+  animation: greenPulse 2s infinite ease-in-out;
+}
+
+.animate-check-draw {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  animation: drawCheck 0.4s ease-out forwards;
+}
+
+/* Custom Card & Button Styles */
+.card-hover {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.card-hover:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 24px -6px rgba(108, 74, 182, 0.08), 0 4px 8px -4px rgba(36, 32, 43, 0.04);
+}
+
+.btn-primary-glow {
+  background-color: #6C4AB6;
+  color: #FFFFFF;
+  transition: all 0.25s ease;
+}
+
+.btn-primary-glow:hover {
+  background-color: #43266F;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px -4px rgba(108, 74, 182, 0.35);
+}
+
+.btn-primary-glow:active {
+  transform: scale(0.97);
+}
+
+.btn-secondary-lift {
+  background-color: #FFFFFF;
+  color: #24202B;
+  border: 1px solid rgba(117, 109, 130, 0.2);
+  transition: all 0.25s ease;
+}
+
+.btn-secondary-lift:hover {
+  background-color: #F8F6FC;
+  transform: translateY(-2px);
+  border-color: #6C4AB6;
+  color: #6C4AB6;
+}
+
+/* Respect Prefers Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
