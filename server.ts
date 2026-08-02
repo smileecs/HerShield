@@ -229,13 +229,14 @@ app.post('/api/auth/register', async (req, res) => {
     });
 
     res.status(201).json({
+      success: true,
       message: "Registration successful! We've sent a verification link to your email. Please verify your email before logging in.",
       email: newUser.email,
       verificationToken: verificationToken, // Provided to allow easy standard testing link in dev preview
     });
   } catch (err: any) {
     console.error('Registration error:', err);
-    res.status(500).json({ error: err.message || 'Unable to create your account. Please try again.' });
+    res.status(500).json({ success: false, error: err.message || 'Unable to create your account. Please try again.', message: err.message || 'Unable to create your account. Please try again.' });
   }
 });
 
@@ -315,23 +316,26 @@ app.post('/api/auth/login', (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
-    return res.status(400).json({ error: 'Email address and password are required.' });
+    return res.status(400).json({ success: false, error: 'Email address and password are required.', message: 'Email address and password are required.' });
   }
 
   const user = Object.values(users).find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
 
   if (!user) {
-    return res.status(401).json({ error: 'Invalid email or password.' });
+    return res.status(401).json({ success: false, error: 'Invalid email or password.', message: 'Invalid email or password.' });
   }
 
   const isValidPassword = bcrypt.compareSync(password, user.passwordHash);
   if (!isValidPassword) {
-    return res.status(401).json({ error: 'Invalid email or password.' });
+    return res.status(401).json({ success: false, error: 'Invalid email or password.', message: 'Invalid email or password.' });
   }
 
   if (!user.emailVerified) {
     return res.status(403).json({
-      error: 'Your email address has not been verified yet.',
+      success: false,
+      code: 'EMAIL_NOT_VERIFIED',
+      error: 'Please verify your email before logging in.',
+      message: 'Please verify your email before logging in.',
       unverified: true,
       email: user.email,
     });
@@ -340,7 +344,7 @@ app.post('/api/auth/login', (req, res) => {
   const token = jwt.sign({ id: user.id, email: user.email, name: user.name }, JWT_SECRET, { expiresIn: '7d' });
   const { passwordHash: _, verificationToken: __, resetToken: ___, ...userWithoutSecrets } = user;
 
-  res.json({ token, user: userWithoutSecrets });
+  res.json({ success: true, token, user: userWithoutSecrets });
 });
 
 app.get('/api/auth/me', authenticateToken, (req: any, res) => {
@@ -919,6 +923,15 @@ io.on('connection', (socket) => {
   });
 });
 
+// --- CATCH-ALL UNKNOWN API ENDPOINT HANDLER ---
+app.all('/api/*', (_req, res) => {
+  res.status(404).json({
+    success: false,
+    error: 'API route not found',
+    message: 'The requested API endpoint does not exist on HerShield server.',
+  });
+});
+
 // --- VITE MIDDLEWARE & PROD STATIC SERVING ---
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
@@ -940,4 +953,8 @@ async function startServer() {
   });
 }
 
-startServer();
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export default app;
