@@ -78,6 +78,7 @@ async function handleResponse(res: Response): Promise<any> {
     (errorObj as any).unverified = data?.unverified;
     (errorObj as any).email = data?.email;
     (errorObj as any).code = data?.code;
+    (errorObj as any).verificationToken = data?.verificationToken;
     throw errorObj;
   }
 
@@ -103,7 +104,15 @@ export const apiRegister = async (
   email: string,
   pass: string,
   confirmPass: string
-): Promise<{ message: string; email: string; verificationToken?: string }> => {
+): Promise<{
+  success: boolean;
+  message: string;
+  email: string;
+  verificationToken?: string;
+  verifyUrl?: string;
+  emailSimulated?: boolean;
+  emailError?: string;
+}> => {
   const res = await fetch(`${API_BASE}/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -133,7 +142,16 @@ export const apiVerifyEmail = async (token: string): Promise<{ success: boolean;
   return await handleResponse(res);
 };
 
-export const apiResendVerification = async (email: string): Promise<{ success: boolean; message: string }> => {
+export const apiResendVerification = async (
+  email: string
+): Promise<{
+  success: boolean;
+  message: string;
+  verificationToken?: string;
+  verifyUrl?: string;
+  emailSimulated?: boolean;
+  emailError?: string;
+}> => {
   const res = await fetch(`${API_BASE}/auth/resend-verification`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -142,7 +160,9 @@ export const apiResendVerification = async (email: string): Promise<{ success: b
   return await handleResponse(res);
 };
 
-export const apiForgotPassword = async (email: string): Promise<{ success: boolean; message: string }> => {
+export const apiForgotPassword = async (
+  email: string
+): Promise<{ success: boolean; message: string; resetToken?: string; resetUrl?: string }> => {
   const res = await fetch(`${API_BASE}/auth/forgot-password`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

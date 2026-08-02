@@ -76,19 +76,36 @@ const trustedContacts: Record<string, TrustedContactRecord[]> = {};
 const journeys: Record<string, JourneyRecord> = {};
 
 // --- EMAIL SERVICE CONFIGURATION ---
-const EMAIL_HOST = process.env.EMAIL_HOST;
-const EMAIL_PORT = parseInt(process.env.EMAIL_PORT || '587', 10);
-const EMAIL_USER = process.env.EMAIL_USER;
-const EMAIL_PASSWORD = process.env.EMAIL_PASSWORD;
-const EMAIL_FROM = process.env.EMAIL_FROM || 'HerShield Safety <noreply@hershield.app>';
+const EMAIL_HOST = process.env.EMAIL_HOST || process.env.SMTP_HOST || (process.env.GMAIL_USER ? 'smtp.gmail.com' : '');
+const EMAIL_PORT = parseInt(process.env.EMAIL_PORT || process.env.SMTP_PORT || '587', 10);
+const EMAIL_USER = process.env.EMAIL_USER || process.env.SMTP_USER || process.env.GMAIL_USER || '';
+const EMAIL_PASSWORD = process.env.EMAIL_PASSWORD || process.env.EMAIL_PASS || process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD || process.env.GMAIL_PASSWORD || '';
+const EMAIL_FROM = process.env.EMAIL_FROM || (EMAIL_USER ? `HerShield Safety <${EMAIL_USER}>` : 'HerShield Safety <noreply@hershield.app>');
 
 function createEmailTransporter() {
-  if (EMAIL_HOST && EMAIL_USER && EMAIL_PASSWORD) {
+  if (EMAIL_USER && EMAIL_PASSWORD) {
+    const hostLower = (EMAIL_HOST || '').toLowerCase();
+    const userLower = (EMAIL_USER || '').toLowerCase();
+    if (hostLower.includes('gmail') || userLower.endsWith('@gmail.com')) {
+      return nodemailer.createTransport({
+        service: 'gmail',
+        auth: { user: EMAIL_USER, pass: EMAIL_PASSWORD },
+        connectionTimeout: 8000,
+        greetingTimeout: 8000,
+        socketTimeout: 8000,
+      });
+    }
     return nodemailer.createTransport({
-      host: EMAIL_HOST,
+      host: EMAIL_HOST || 'smtp.gmail.com',
       port: EMAIL_PORT,
       secure: EMAIL_PORT === 465,
       auth: { user: EMAIL_USER, pass: EMAIL_PASSWORD },
+      connectionTimeout: 8000,
+      greetingTimeout: 8000,
+      socketTimeout: 8000,
+      tls: {
+        rejectUnauthorized: false,
+      },
     });
   }
   return null;
@@ -99,20 +116,20 @@ async function sendEmail({ to, subject, html, text }: { to: string; subject: str
   if (transporter) {
     try {
       const info = await transporter.sendMail({ from: EMAIL_FROM, to, subject, html, text });
-      console.log(`✉️ Email sent to ${to}: ${info.messageId}`);
-      return { success: true, messageId: info.messageId };
+      console.log(`✉️ [SMTP SUCCESS] Email delivered to ${to}: ${info.messageId}`);
+      return { success: true, messageId: info.messageId, simulated: false };
     } catch (err: any) {
-      console.error(`❌ Email delivery error to ${to}:`, err.message);
-      return { success: false, error: err.message };
+      console.error(`❌ [SMTP ERROR] Email delivery failed to ${to}:`, err.message);
+      return { success: false, error: err.message, simulated: false };
     }
   } else {
     console.log(`\n==================================================`);
-    console.log(`✉️ [HERShield SERVER EMAIL DISPATCH]`);
+    console.log(`✉️ [HERShield SERVER EMAIL DISPATCH - NO SMTP ENV]`);
     console.log(`To: ${to}`);
     console.log(`Subject: ${subject}`);
-    console.log(`Content snippet: ${text || html.replace(/<[^>]+>/g, '').substring(0, 200)}`);
+    console.log(`Text: ${text || html.replace(/<[^>]+>/g, '').substring(0, 150)}`);
     console.log(`==================================================\n`);
-    return { success: true, simulated: true };
+    return { success: true, simulated: true, warning: 'SMTP environment variables not configured on server.' };
   }
 }
 
@@ -260,11 +277,16 @@ const handleRegister = async (req: express.Request, res: express.Response) => {
 
     res.status(201).json({
       success: true,
-      message: emailResult.success
+      message: emailResult.simulated
+        ? "Account registered! A verification link has been generated. You can verify your email directly below or check your inbox."
+        : emailResult.success
         ? "Registration successful! We've sent a verification link to your email. Please verify your email before logging in."
-        : "Registration successful! Verification link generated. Please verify your email before logging in.",
+        : `Registration successful! Verification link generated. Please verify your email before logging in.`,
       email: newUser.email,
       verificationToken: verificationToken,
+      verifyUrl: verifyUrl,
+      emailSimulated: emailResult.simulated,
+      emailError: emailResult.error,
     });
   } catch (err: any) {
     console.error('[REGISTER ERROR]', err);
@@ -279,21 +301,21 @@ const handleRegister = async (req: express.Request, res: express.Response) => {
 app.post('/api/auth/register', handleRegister);
 app.post('/auth/register', handleRegister);
 
-app.get('/api/auth/verify-email', (req, res) => {
-  const token = req.query.token as string;
+const handleVerifyEmail = (req: any, res: any) => {
+  const token = (req.query.token || req.query.verifyToken || req.body.token) as string;
 
   if (!token) {
-    return res.status(400).json({ error: 'Verification token is required.' });
+    return res.status(400).json({ success: false, error: 'Verification token is required.', message: 'Verification token is required.' });
   }
 
   const user = Object.values(users).find((u) => u.verificationToken === token);
 
   if (!user) {
-    return res.status(400).json({ error: 'This verification link is invalid or has expired.' });
+    return res.status(400).json({ success: false, error: 'This verification link is invalid or has already been used.', message: 'This verification link is invalid or has already been used.' });
   }
 
   if (user.verificationTokenExpiry && user.verificationTokenExpiry < Date.now()) {
-    return res.status(400).json({ error: 'This verification link has expired. Please request a new verification email.' });
+    return res.status(400).json({ success: false, error: 'This verification link has expired. Please request a new verification email.', message: 'This verification link has expired. Please request a new verification email.' });
   }
 
   user.emailVerified = true;
@@ -305,24 +327,29 @@ app.get('/api/auth/verify-email', (req, res) => {
     message: 'Email verified successfully! You can now log in to HerShield.',
     email: user.email,
   });
-});
+};
 
-app.post('/api/auth/resend-verification', async (req, res) => {
+app.get('/api/auth/verify-email', handleVerifyEmail);
+app.get('/auth/verify-email', handleVerifyEmail);
+app.post('/api/auth/verify-email', handleVerifyEmail);
+app.post('/auth/verify-email', handleVerifyEmail);
+
+const handleResendVerification = async (req: any, res: any) => {
   try {
     const { email } = req.body;
 
     if (!email) {
-      return res.status(400).json({ error: 'Email address is required.' });
+      return res.status(400).json({ success: false, error: 'Email address is required.', message: 'Email address is required.' });
     }
 
     const user = Object.values(users).find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
 
     if (!user) {
-      return res.status(400).json({ error: 'No account found with this email address.' });
+      return res.status(400).json({ success: false, error: 'No account found with this email address.', message: 'No account found with this email address.' });
     }
 
     if (user.emailVerified) {
-      return res.status(400).json({ error: 'This email address is already verified. You can proceed to log in.' });
+      return res.status(400).json({ success: false, error: 'This email address is already verified. You can proceed to log in.', message: 'This email address is already verified. You can proceed to log in.' });
     }
 
     const newToken = crypto.randomBytes(32).toString('hex');
@@ -334,24 +361,56 @@ app.post('/api/auth/resend-verification', async (req, res) => {
     const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || `${protocol}://${host}`;
     const verifyUrl = `${baseUrl}?verifyToken=${newToken}`;
 
-    await sendEmail({
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 20px; background-color: #ffffff;">
+        <div style="text-align: center; margin-bottom: 24px;">
+          <h1 style="color: #6C4AB6; margin: 0; font-size: 28px; font-weight: 900;">HerShield</h1>
+          <p style="color: #756D82; font-size: 13px; margin-top: 4px; font-weight: bold;">Your Journey. Your Circle. Your Safety.</p>
+        </div>
+        <h2 style="color: #24202B; font-size: 20px; margin-bottom: 12px;">Verify Your Email Address</h2>
+        <p style="color: #4a5568; font-size: 14px; line-height: 1.6;">
+          Hello <strong>${user.name}</strong>, please verify your email address to access your HerShield safety network.
+        </p>
+        <div style="text-align: center; margin: 32px 0;">
+          <a href="${verifyUrl}" style="background-color: #6C4AB6; color: #ffffff; padding: 14px 28px; text-decoration: none; font-weight: bold; font-size: 14px; border-radius: 14px; display: inline-block;">Verify Email Address</a>
+        </div>
+        <p style="color: #718096; font-size: 12px; line-height: 1.5;">
+          Direct link: <br>
+          <a href="${verifyUrl}" style="color: #6C4AB6; word-break: break-all;">${verifyUrl}</a>
+        </p>
+        <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;">
+        <p style="color: #a0aec0; font-size: 11px; text-align: center;">This link will expire in 24 hours.</p>
+      </div>
+    `;
+
+    const emailResult = await sendEmail({
       to: user.email,
       subject: 'HerShield — New Email Verification Link',
-      html: `<p>Click here to verify your HerShield account: <a href="${verifyUrl}">${verifyUrl}</a></p>`,
+      html: emailHtml,
       text: `Verify your HerShield account: ${verifyUrl}`,
     });
 
     res.json({
       success: true,
-      message: 'Verification email sent successfully. Please check your inbox.',
+      message: emailResult.simulated
+        ? "Verification link generated! You can click below to verify your email instantly."
+        : emailResult.success
+        ? "Verification email sent successfully. Please check your inbox."
+        : `Verification link generated. You can verify your email directly below.`,
       verificationToken: newToken,
+      verifyUrl: verifyUrl,
+      emailSimulated: emailResult.simulated,
+      emailError: emailResult.error,
     });
   } catch (err: any) {
-    res.status(500).json({ error: 'Unable to send verification email. Please try again.' });
+    res.status(500).json({ success: false, error: err.message || 'Unable to send verification email. Please try again.', message: err.message || 'Unable to send verification email. Please try again.' });
   }
-});
+};
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/resend-verification', handleResendVerification);
+app.post('/auth/resend-verification', handleResendVerification);
+
+const handleLogin = (req: any, res: any) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -370,13 +429,20 @@ app.post('/api/auth/login', (req, res) => {
   }
 
   if (!user.emailVerified) {
+    // Generate fresh verification token if needed
+    if (!user.verificationToken) {
+      user.verificationToken = crypto.randomBytes(32).toString('hex');
+      user.verificationTokenExpiry = Date.now() + 24 * 3600 * 1000;
+    }
+
     return res.status(403).json({
       success: false,
       code: 'EMAIL_NOT_VERIFIED',
-      error: 'Please verify your email before logging in.',
-      message: 'Please verify your email before logging in.',
+      error: 'Please verify your email address before logging in.',
+      message: 'Please verify your email address before logging in.',
       unverified: true,
       email: user.email,
+      verificationToken: user.verificationToken,
     });
   }
 
@@ -384,20 +450,26 @@ app.post('/api/auth/login', (req, res) => {
   const { passwordHash: _, verificationToken: __, resetToken: ___, ...userWithoutSecrets } = user;
 
   res.json({ success: true, token, user: userWithoutSecrets });
-});
+};
 
-app.get('/api/auth/me', authenticateToken, (req: any, res) => {
+app.post('/api/auth/login', handleLogin);
+app.post('/auth/login', handleLogin);
+
+const handleGetMe = (req: any, res: any) => {
   const user = users[req.user.id];
   if (!user) {
-    return res.status(404).json({ error: 'User account not found.' });
+    return res.status(404).json({ success: false, error: 'User account not found.', message: 'User account not found.' });
   }
   const { passwordHash: _, verificationToken: __, resetToken: ___, ...userWithoutSecrets } = user;
-  res.json({ user: userWithoutSecrets });
-});
+  res.json({ success: true, user: userWithoutSecrets });
+};
 
-app.post('/api/auth/forgot-password', async (req, res) => {
+app.get('/api/auth/me', authenticateToken, handleGetMe);
+app.get('/auth/me', authenticateToken, handleGetMe);
+
+const handleForgotPassword = async (req: any, res: any) => {
   const { email } = req.body;
-  if (!email) return res.status(400).json({ error: 'Email address is required.' });
+  if (!email) return res.status(400).json({ success: false, error: 'Email address is required.', message: 'Email address is required.' });
 
   const user = Object.values(users).find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
   if (!user) {
@@ -411,30 +483,40 @@ app.post('/api/auth/forgot-password', async (req, res) => {
   const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
   const resetUrl = `${baseUrl}?resetToken=${resetToken}`;
 
-  await sendEmail({
+  const emailResult = await sendEmail({
     to: user.email,
     subject: 'HerShield — Password Reset Request',
     html: `<p>Click here to reset your HerShield password: <a href="${resetUrl}">${resetUrl}</a></p>`,
     text: `Reset your HerShield password: ${resetUrl}`,
   });
 
-  res.json({ success: true, message: 'Password reset instructions sent to your email.' });
-});
+  res.json({
+    success: true,
+    message: emailResult.simulated
+      ? 'Password reset link generated! You can reset your password using the link or token below.'
+      : 'Password reset instructions sent to your email address.',
+    resetToken,
+    resetUrl,
+  });
+};
 
-app.post('/api/auth/reset-password', (req, res) => {
+app.post('/api/auth/forgot-password', handleForgotPassword);
+app.post('/auth/forgot-password', handleForgotPassword);
+
+const handleResetPassword = (req: any, res: any) => {
   const { token, newPassword } = req.body;
 
   if (!token || !newPassword) {
-    return res.status(400).json({ error: 'Reset token and new password are required.' });
+    return res.status(400).json({ success: false, error: 'Reset token and new password are required.', message: 'Reset token and new password are required.' });
   }
 
   const user = Object.values(users).find((u) => u.resetToken === token);
   if (!user || (user.resetTokenExpiry && user.resetTokenExpiry < Date.now())) {
-    return res.status(400).json({ error: 'Password reset link is invalid or has expired.' });
+    return res.status(400).json({ success: false, error: 'Password reset link is invalid or has expired.', message: 'Password reset link is invalid or has expired.' });
   }
 
   if (newPassword.length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
+    return res.status(400).json({ success: false, error: 'Password must be at least 6 characters long.', message: 'Password must be at least 6 characters long.' });
   }
 
   user.passwordHash = bcrypt.hashSync(newPassword, 10);
@@ -442,7 +524,10 @@ app.post('/api/auth/reset-password', (req, res) => {
   delete user.resetTokenExpiry;
 
   res.json({ success: true, message: 'Password updated successfully. You can now log in.' });
-});
+};
+
+app.post('/api/auth/reset-password', handleResetPassword);
+app.post('/auth/reset-password', handleResetPassword);
 
 // --- REAL ROUTING API ---
 async function geocodeLocation(query: string): Promise<{ address: string; lat: number; lng: number }> {
