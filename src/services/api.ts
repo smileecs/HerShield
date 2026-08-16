@@ -10,8 +10,15 @@ export const getSocket = (): Socket => {
   if (!socketClient) {
     const socketOrigin = rawApiUrl || window.location.origin;
     socketClient = io(socketOrigin, {
-      transports: ['websocket', 'polling'],
+      transports: ['polling', 'websocket'],
+      reconnectionAttempts: 3,
+      reconnectionDelay: 5000,
+      timeout: 6000,
       autoConnect: true,
+    });
+
+    socketClient.on('connect_error', () => {
+      // Quiet failover on serverless environments (e.g. Vercel) where WebSockets are unsupported
     });
   }
   return socketClient;
@@ -65,10 +72,19 @@ async function handleResponse(res: Response): Promise<any> {
   } else {
     const text = await res.text().catch(() => '');
     if (!res.ok) {
+      if (res.status === 403) {
+        throw new Error(
+          'Access forbidden (403). If deployed on Vercel, please disable "Deployment Protection" (Vercel Authentication) in Vercel Settings > Deployment Protection.'
+        );
+      }
       if (res.status === 404) {
         throw new Error('Unable to connect to the HerShield server. Please check the API configuration or server URL.');
       }
-      throw new Error(`Server returned non-JSON response (${res.status}): ${text.slice(0, 100) || 'Unexpected response'}`);
+      if (res.status >= 500) {
+        throw new Error('HerShield server is currently starting or encountered an issue. Please try again in a moment.');
+      }
+      const cleanSnippet = text.replace(/<[^>]*>?/gm, '').trim();
+      throw new Error(`Server returned error (${res.status}): ${cleanSnippet.slice(0, 120) || 'Unexpected response'}`);
     }
   }
 
@@ -108,6 +124,8 @@ export const apiRegister = async (
   success: boolean;
   message: string;
   email: string;
+  token?: string;
+  user?: User;
   verificationToken?: string;
   verifyUrl?: string;
   emailSimulated?: boolean;
@@ -118,7 +136,12 @@ export const apiRegister = async (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, email, password: pass, confirmPassword: confirmPass }),
   });
-  return await handleResponse(res);
+  const data = await handleResponse(res);
+  if (data.token && data.user) {
+    setStoredToken(data.token);
+    setStoredUser(data.user);
+  }
+  return data;
 };
 
 export const apiLogin = async (email: string, pass: string): Promise<{ token: string; user: User }> => {
@@ -246,6 +269,10 @@ export const apiCompleteJourney = async (journeyId: string): Promise<Journey> =>
 
 export const apiEndJourney = async (journeyId: string): Promise<Journey> => {
   return await authFetch(`${API_BASE}/journeys/${journeyId}/end`, { method: 'POST' });
+};
+
+export const apiNotifyCircle = async (journeyId: string): Promise<{ success: boolean; message: string; count?: number }> => {
+  return await authFetch(`${API_BASE}/journeys/${journeyId}/notify-circle`, { method: 'POST' });
 };
 
 export const apiUpdateLocation = async (journeyId: string, lat: number, lng: number, progressPercent: number): Promise<void> => {

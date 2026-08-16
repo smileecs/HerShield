@@ -34,27 +34,52 @@ export const SharedJourneyPage: React.FC<SharedJourneyPageProps> = ({ shareToken
 
     loadData();
 
+    // Polling interval fallback for environments where WebSockets are unavailable (e.g. Vercel)
+    const pollInterval = setInterval(() => {
+      if (!isMounted) return;
+      apiGetSharedJourney(shareToken)
+        .then((data) => {
+          if (!isMounted || !data) return;
+          setJourney(data);
+          if (data.currentLocation) {
+            setCurrentLoc(data.currentLocation);
+          }
+          if (typeof data.progressPercent === 'number') {
+            setProgress(data.progressPercent);
+          }
+        })
+        .catch(() => {});
+    }, 4000);
+
     // Subscribe to Socket.IO real-time stream
-    const socket = getSocket();
-    socket.emit('join_journey', shareToken);
+    try {
+      const socket = getSocket();
+      socket.emit('join_journey', shareToken);
 
-    socket.on('location_updated', (data: { currentLocation: Coordinate; progressPercent: number }) => {
-      if (data.currentLocation) {
-        setCurrentLoc(data.currentLocation);
-      }
-      if (typeof data.progressPercent === 'number') {
-        setProgress(data.progressPercent);
-      }
-    });
+      socket.on('location_updated', (data: { currentLocation: Coordinate; progressPercent: number }) => {
+        if (data.currentLocation) {
+          setCurrentLoc(data.currentLocation);
+        }
+        if (typeof data.progressPercent === 'number') {
+          setProgress(data.progressPercent);
+        }
+      });
 
-    socket.on('status_changed', (data: { status: 'active' | 'completed' | 'cancelled'; note?: string }) => {
-      setJourney((prev) => (prev ? { ...prev, status: data.status as any, lastUpdateNote: data.note } : null));
-    });
+      socket.on('status_changed', (data: { status: 'active' | 'completed' | 'cancelled'; note?: string }) => {
+        setJourney((prev) => (prev ? { ...prev, status: data.status as any, lastUpdateNote: data.note } : null));
+      });
+    } catch {
+      // Sockets not available
+    }
 
     return () => {
       isMounted = false;
-      socket.off('location_updated');
-      socket.off('status_changed');
+      clearInterval(pollInterval);
+      try {
+        const socket = getSocket();
+        socket.off('location_updated');
+        socket.off('status_changed');
+      } catch {}
     };
   }, [shareToken]);
 

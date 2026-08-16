@@ -9,9 +9,19 @@ interface AuthModalProps {
   onSuccess: (user: User) => void;
   showToast: (msg: string, type?: 'success' | 'warning' | 'info' | 'error') => void;
   initialResetToken?: string | null;
+  initialEmail?: string | null;
+  initialSuccessMessage?: string | null;
 }
 
-export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess, showToast, initialResetToken }) => {
+export const AuthModal: React.FC<AuthModalProps> = ({
+  isOpen,
+  onClose,
+  onSuccess,
+  showToast,
+  initialResetToken,
+  initialEmail,
+  initialSuccessMessage,
+}) => {
   const [mode, setMode] = useState<'login' | 'register' | 'forgot_password' | 'reset_password'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -32,6 +42,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
       setMode('reset_password');
     }
   }, [initialResetToken]);
+
+  useEffect(() => {
+    if (initialEmail) {
+      setEmail(initialEmail);
+    }
+  }, [initialEmail]);
+
+  useEffect(() => {
+    if (initialSuccessMessage) {
+      setSuccessInfo(initialSuccessMessage);
+      setMode('login');
+    }
+  }, [initialSuccessMessage]);
 
   if (!isOpen) return null;
 
@@ -78,9 +101,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess
       setLoading(true);
       try {
         const res = await apiRegister(name, email, password, confirmPassword);
-        setSuccessInfo(res.message);
+        setSuccessInfo(res.message || 'Account created! Please check your email for the verification link.');
         setUnverifiedEmail(email);
-        showToast('Registration complete! Please check your email for the verification link.', 'success');
+        setMode('login');
+        showToast('Registration successful! Please check your email to verify your account before logging in.', 'success');
       } catch (err: any) {
         setError(err.message || 'Registration failed. Please try again.');
       } finally {

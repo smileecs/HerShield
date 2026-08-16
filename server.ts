@@ -11,6 +11,10 @@ import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import mongoose from 'mongoose';
 import { Server as SocketIOServer } from 'socket.io';
+import { initializeApp as initAdminApp, getApps as getAdminApps } from 'firebase-admin/app';
+import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
+import type { Firestore } from 'firebase-admin/firestore';
+import firebaseConfig from './firebase-applet-config.json';
 
 const PORT = 3000;
 
@@ -66,6 +70,7 @@ export interface UserRecord {
   emailVerified: boolean;
   verificationToken?: string;
   verificationTokenExpiry?: number;
+  usedVerificationTokens?: string[];
   resetToken?: string;
   resetTokenExpiry?: number;
   createdAt: string;
@@ -148,6 +153,7 @@ const UserSchema = new mongoose.Schema({
   emailVerified: { type: Boolean, default: false },
   verificationToken: { type: String, index: true },
   verificationTokenExpiry: { type: Number },
+  usedVerificationTokens: { type: [String], default: [] },
   resetToken: { type: String, index: true },
   resetTokenExpiry: { type: Number },
   createdAt: { type: String, default: () => new Date().toISOString() },
@@ -260,9 +266,158 @@ function getResetPasswordUrl(req: Request, token: string): string {
   return `${base}/?resetToken=${encodeURIComponent(token)}`;
 }
 
-// --- DATABASE DATA LAYER HELPERS ---
+// --- DATABASE DATA LAYER (FIRESTORE PRIMARY + MONGO/MEMORY SYNC) ---
+
+const FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/${firebaseConfig.firestoreDatabaseId}/documents`;
+
+function toFirestoreValue(val: any): any {
+  if (val === null || val === undefined) return { nullValue: null };
+  if (typeof val === 'boolean') return { booleanValue: val };
+  if (typeof val === 'number') {
+    return Number.isInteger(val) ? { integerValue: String(val) } : { doubleValue: val };
+  }
+  if (typeof val === 'string') return { stringValue: val };
+  if (Array.isArray(val)) {
+    return { arrayValue: { values: val.map(toFirestoreValue) } };
+  }
+  if (typeof val === 'object') {
+    const fields: Record<string, any> = {};
+    for (const [k, v] of Object.entries(val)) {
+      if (v !== undefined) fields[k] = toFirestoreValue(v);
+    }
+    return { mapValue: { fields } };
+  }
+  return { stringValue: String(val) };
+}
+
+function toFirestoreFields(obj: Record<string, any>): Record<string, any> {
+  const fields: Record<string, any> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v !== undefined) fields[k] = toFirestoreValue(v);
+  }
+  return fields;
+}
+
+function fromFirestoreValue(val: any): any {
+  if (!val || typeof val !== 'object') return null;
+  if ('nullValue' in val) return null;
+  if ('booleanValue' in val) return val.booleanValue;
+  if ('integerValue' in val) return parseInt(val.integerValue, 10);
+  if ('doubleValue' in val) return parseFloat(val.doubleValue);
+  if ('stringValue' in val) return val.stringValue;
+  if ('timestampValue' in val) return val.timestampValue;
+  if ('arrayValue' in val) return (val.arrayValue?.values || []).map(fromFirestoreValue);
+  if ('mapValue' in val) {
+    const res: Record<string, any> = {};
+    for (const [k, v] of Object.entries(val.mapValue?.fields || {})) {
+      res[k] = fromFirestoreValue(v);
+    }
+    return res;
+  }
+  return null;
+}
+
+function fromFirestoreDoc(doc: any): any {
+  if (!doc || !doc.fields) return null;
+  const res: Record<string, any> = {};
+  for (const [k, v] of Object.entries(doc.fields)) {
+    res[k] = fromFirestoreValue(v);
+  }
+  return res;
+}
+
+async function fsSetDoc(collection: string, docId: string, data: any): Promise<void> {
+  try {
+    const url = `${FIRESTORE_BASE}/${collection}/${encodeURIComponent(docId)}?key=${firebaseConfig.apiKey}`;
+    const fields = toFirestoreFields(data);
+    const res = await fetch(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      console.warn(`⚠️ [FIRESTORE SYNC ERROR] ${collection}/${docId}:`, res.status, errText);
+    } else {
+      console.log(`✅ [FIRESTORE SYNC] Saved ${collection}/${docId} to database: ${firebaseConfig.firestoreDatabaseId}`);
+    }
+  } catch (err) {
+    console.warn(`⚠️ [FIRESTORE FETCH EXCEPTION] ${collection}/${docId}:`, err);
+  }
+}
+
+async function fsGetDoc<T>(collection: string, docId: string): Promise<T | null> {
+  try {
+    const url = `${FIRESTORE_BASE}/${collection}/${encodeURIComponent(docId)}?key=${firebaseConfig.apiKey}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const doc = await res.json();
+    return fromFirestoreDoc(doc) as T;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function fsDeleteDoc(collection: string, docId: string): Promise<boolean> {
+  try {
+    const url = `${FIRESTORE_BASE}/${collection}/${encodeURIComponent(docId)}?key=${firebaseConfig.apiKey}`;
+    const res = await fetch(url, { method: 'DELETE' });
+    return res.ok;
+  } catch (err) {
+    return false;
+  }
+}
+
+async function fsQuery<T>(collection: string, field: string, op: 'EQUAL' | 'ARRAY_CONTAINS', value: any, limit?: number): Promise<T[]> {
+  try {
+    const url = `${FIRESTORE_BASE}:runQuery?key=${firebaseConfig.apiKey}`;
+    const structuredQuery: any = {
+      from: [{ collectionId: collection }],
+      where: {
+        fieldFilter: {
+          field: { fieldPath: field },
+          op,
+          value: toFirestoreValue(value),
+        },
+      },
+    };
+    if (limit) {
+      structuredQuery.limit = limit;
+    }
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ structuredQuery }),
+    });
+    if (!res.ok) return [];
+    const items = await res.json();
+    if (!Array.isArray(items)) return [];
+    return items.filter((item: any) => item.document).map((item: any) => fromFirestoreDoc(item.document) as T);
+  } catch (err) {
+    return [];
+  }
+}
+
+function getFirestoreDb(): boolean {
+  return Boolean(firebaseConfig.projectId && firebaseConfig.firestoreDatabaseId && firebaseConfig.apiKey);
+}
+
 async function findUserByEmail(email: string): Promise<UserRecord | null> {
   const cleanEmail = (email || '').trim().toLowerCase();
+
+  // 1. Primary: Firestore
+  try {
+    const docs = await fsQuery<UserRecord>('users', 'email', 'EQUAL', cleanEmail, 1);
+    if (docs.length > 0) {
+      const u = docs[0];
+      usersStore[u.id] = u;
+      return u;
+    }
+  } catch (e) {
+    console.warn('Firestore findUserByEmail error:', e);
+  }
+
+  // 2. Secondary: MongoDB
   const dbOk = await connectDb();
   if (dbOk) {
     try {
@@ -272,10 +427,24 @@ async function findUserByEmail(email: string): Promise<UserRecord | null> {
       console.warn('DB user lookup error, checking fallback store:', e);
     }
   }
+
+  // 3. Fallback: Memory
   return Object.values(usersStore).find((u) => u.email.toLowerCase() === cleanEmail) || null;
 }
 
 async function findUserById(id: string): Promise<UserRecord | null> {
+  // 1. Primary: Firestore
+  try {
+    const u = await fsGetDoc<UserRecord>('users', id);
+    if (u) {
+      usersStore[u.id] = u;
+      return u;
+    }
+  } catch (e) {
+    console.warn('Firestore findUserById error:', e);
+  }
+
+  // 2. Secondary: MongoDB
   const dbOk = await connectDb();
   if (dbOk) {
     try {
@@ -285,10 +454,25 @@ async function findUserById(id: string): Promise<UserRecord | null> {
       console.warn('DB user lookup by ID error:', e);
     }
   }
+
+  // 3. Fallback: Memory
   return usersStore[id] || null;
 }
 
 async function findUserByVerificationToken(token: string): Promise<UserRecord | null> {
+  // 1. Primary: Firestore
+  try {
+    const docs = await fsQuery<UserRecord>('users', 'verificationToken', 'EQUAL', token, 1);
+    if (docs.length > 0) {
+      const u = docs[0];
+      usersStore[u.id] = u;
+      return u;
+    }
+  } catch (e) {
+    console.warn('Firestore findUserByVerificationToken error:', e);
+  }
+
+  // 2. Secondary: MongoDB
   const dbOk = await connectDb();
   if (dbOk) {
     try {
@@ -298,10 +482,53 @@ async function findUserByVerificationToken(token: string): Promise<UserRecord | 
       console.warn('DB user lookup by verification token error:', e);
     }
   }
+
+  // 3. Fallback: Memory
   return Object.values(usersStore).find((u) => u.verificationToken === token) || null;
 }
 
+async function findUserByUsedVerificationToken(token: string): Promise<UserRecord | null> {
+  // 1. Primary: Firestore
+  try {
+    const docs = await fsQuery<UserRecord>('users', 'usedVerificationTokens', 'ARRAY_CONTAINS', token, 1);
+    if (docs.length > 0) {
+      const u = docs[0];
+      usersStore[u.id] = u;
+      return u;
+    }
+  } catch (e) {
+    console.warn('Firestore findUserByUsedVerificationToken error:', e);
+  }
+
+  // 2. Secondary: MongoDB
+  const dbOk = await connectDb();
+  if (dbOk) {
+    try {
+      const doc = await UserModel.findOne({ usedVerificationTokens: token }).lean();
+      if (doc) return doc as unknown as UserRecord;
+    } catch (e) {
+      console.warn('DB user lookup by used verification token error:', e);
+    }
+  }
+
+  // 3. Fallback: Memory
+  return Object.values(usersStore).find((u) => u.usedVerificationTokens && u.usedVerificationTokens.includes(token)) || null;
+}
+
 async function findUserByResetToken(token: string): Promise<UserRecord | null> {
+  // 1. Primary: Firestore
+  try {
+    const docs = await fsQuery<UserRecord>('users', 'resetToken', 'EQUAL', token, 1);
+    if (docs.length > 0) {
+      const u = docs[0];
+      usersStore[u.id] = u;
+      return u;
+    }
+  } catch (e) {
+    console.warn('Firestore findUserByResetToken error:', e);
+  }
+
+  // 2. Secondary: MongoDB
   const dbOk = await connectDb();
   if (dbOk) {
     try {
@@ -311,11 +538,23 @@ async function findUserByResetToken(token: string): Promise<UserRecord | null> {
       console.warn('DB user lookup by reset token error:', e);
     }
   }
+
+  // 3. Fallback: Memory
   return Object.values(usersStore).find((u) => u.resetToken === token) || null;
 }
 
 async function saveUser(user: UserRecord): Promise<UserRecord> {
   usersStore[user.id] = user;
+
+  // 1. Persist to Firestore
+  try {
+    const cleanUser = JSON.parse(JSON.stringify(user));
+    await fsSetDoc('users', user.id, cleanUser);
+  } catch (e) {
+    console.error('Firestore saveUser error:', e);
+  }
+
+  // 2. Sync to MongoDB if connected
   const dbOk = await connectDb();
   if (dbOk) {
     try {
@@ -328,6 +567,18 @@ async function saveUser(user: UserRecord): Promise<UserRecord> {
 }
 
 async function getUserContacts(userId: string): Promise<TrustedContactRecord[]> {
+  // 1. Primary: Firestore
+  try {
+    const list = await fsQuery<TrustedContactRecord>('contacts', 'userId', 'EQUAL', userId);
+    if (list.length > 0) {
+      contactsStore[userId] = list;
+      return list;
+    }
+  } catch (e) {
+    console.warn('Firestore getUserContacts error:', e);
+  }
+
+  // 2. Secondary: MongoDB
   const dbOk = await connectDb();
   if (dbOk) {
     try {
@@ -337,6 +588,8 @@ async function getUserContacts(userId: string): Promise<TrustedContactRecord[]> 
       console.warn('DB contacts lookup error:', e);
     }
   }
+
+  // 3. Fallback: Memory
   return contactsStore[userId] || [];
 }
 
@@ -346,6 +599,15 @@ async function addContact(contact: TrustedContactRecord): Promise<TrustedContact
   }
   contactsStore[contact.userId].push(contact);
 
+  // 1. Persist to Firestore
+  try {
+    const cleanContact = JSON.parse(JSON.stringify(contact));
+    await fsSetDoc('contacts', contact.id, cleanContact);
+  } catch (e) {
+    console.error('Firestore addContact error:', e);
+  }
+
+  // 2. Sync to MongoDB if connected
   const dbOk = await connectDb();
   if (dbOk) {
     try {
@@ -362,13 +624,34 @@ async function updateContact(
   contactId: string,
   updates: Partial<TrustedContactRecord>
 ): Promise<TrustedContactRecord | null> {
+  let updatedContact: TrustedContactRecord | null = null;
+
   if (contactsStore[userId]) {
     const idx = contactsStore[userId].findIndex((c) => c.id === contactId);
     if (idx !== -1) {
       contactsStore[userId][idx] = { ...contactsStore[userId][idx], ...updates };
+      updatedContact = contactsStore[userId][idx];
     }
   }
 
+  if (!updatedContact) {
+    const existing = await fsGetDoc<TrustedContactRecord>('contacts', contactId);
+    if (existing) {
+      updatedContact = { ...existing, ...updates };
+    }
+  }
+
+  // 1. Persist updates to Firestore
+  if (updatedContact) {
+    try {
+      const cleanUpdates = JSON.parse(JSON.stringify(updatedContact));
+      await fsSetDoc('contacts', contactId, cleanUpdates);
+    } catch (e) {
+      console.error('Firestore updateContact error:', e);
+    }
+  }
+
+  // 2. Sync to MongoDB if connected
   const dbOk = await connectDb();
   if (dbOk) {
     try {
@@ -379,8 +662,7 @@ async function updateContact(
     }
   }
 
-  const memList = contactsStore[userId] || [];
-  return memList.find((c) => c.id === contactId) || null;
+  return updatedContact;
 }
 
 async function deleteContact(userId: string, contactId: string): Promise<boolean> {
@@ -388,6 +670,14 @@ async function deleteContact(userId: string, contactId: string): Promise<boolean
     contactsStore[userId] = contactsStore[userId].filter((c) => c.id !== contactId);
   }
 
+  // 1. Delete from Firestore
+  try {
+    await fsDeleteDoc('contacts', contactId);
+  } catch (e) {
+    console.error('Firestore deleteContact error:', e);
+  }
+
+  // 2. Delete from MongoDB
   const dbOk = await connectDb();
   if (dbOk) {
     try {
@@ -400,6 +690,21 @@ async function deleteContact(userId: string, contactId: string): Promise<boolean
 }
 
 async function getUserJourneys(userId: string): Promise<JourneyRecord[]> {
+  // 1. Primary: Firestore
+  try {
+    const list = await fsQuery<JourneyRecord>('journeys', 'userId', 'EQUAL', userId);
+    if (list.length > 0) {
+      list.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+      list.forEach((j) => {
+        journeysStore[j.id] = j;
+      });
+      return list;
+    }
+  } catch (e) {
+    console.warn('Firestore getUserJourneys error:', e);
+  }
+
+  // 2. Secondary: MongoDB
   const dbOk = await connectDb();
   if (dbOk) {
     try {
@@ -409,10 +714,24 @@ async function getUserJourneys(userId: string): Promise<JourneyRecord[]> {
       console.warn('DB journeys lookup error:', e);
     }
   }
+
+  // 3. Fallback: Memory
   return Object.values(journeysStore).filter((j) => j.userId === userId);
 }
 
 async function getJourneyById(id: string): Promise<JourneyRecord | null> {
+  // 1. Primary: Firestore
+  try {
+    const j = await fsGetDoc<JourneyRecord>('journeys', id);
+    if (j) {
+      journeysStore[j.id] = j;
+      return j;
+    }
+  } catch (e) {
+    console.warn('Firestore getJourneyById error:', e);
+  }
+
+  // 2. Secondary: MongoDB
   const dbOk = await connectDb();
   if (dbOk) {
     try {
@@ -422,10 +741,25 @@ async function getJourneyById(id: string): Promise<JourneyRecord | null> {
       console.warn('DB journey lookup error:', e);
     }
   }
+
+  // 3. Fallback: Memory
   return journeysStore[id] || null;
 }
 
 async function getJourneyByShareToken(shareToken: string): Promise<JourneyRecord | null> {
+  // 1. Primary: Firestore
+  try {
+    const list = await fsQuery<JourneyRecord>('journeys', 'shareToken', 'EQUAL', shareToken, 1);
+    if (list.length > 0) {
+      const j = list[0];
+      journeysStore[j.id] = j;
+      return j;
+    }
+  } catch (e) {
+    console.warn('Firestore getJourneyByShareToken error:', e);
+  }
+
+  // 2. Secondary: MongoDB
   const dbOk = await connectDb();
   if (dbOk) {
     try {
@@ -435,11 +769,23 @@ async function getJourneyByShareToken(shareToken: string): Promise<JourneyRecord
       console.warn('DB shared journey lookup error:', e);
     }
   }
+
+  // 3. Fallback: Memory
   return Object.values(journeysStore).find((j) => j.shareToken === shareToken) || null;
 }
 
 async function saveJourney(journey: JourneyRecord): Promise<JourneyRecord> {
   journeysStore[journey.id] = journey;
+
+  // 1. Persist to Firestore
+  try {
+    const cleanJourney = JSON.parse(JSON.stringify(journey));
+    await fsSetDoc('journeys', journey.id, cleanJourney);
+  } catch (e) {
+    console.error('Firestore saveJourney error:', e);
+  }
+
+  // 2. Sync to MongoDB if connected
   const dbOk = await connectDb();
   if (dbOk) {
     try {
@@ -453,6 +799,15 @@ async function saveJourney(journey: JourneyRecord): Promise<JourneyRecord> {
 
 async function deleteJourney(id: string, userId: string): Promise<boolean> {
   delete journeysStore[id];
+
+  // 1. Delete from Firestore
+  try {
+    await fsDeleteDoc('journeys', id);
+  } catch (e) {
+    console.error('Firestore deleteJourney error:', e);
+  }
+
+  // 2. Delete from MongoDB
   const dbOk = await connectDb();
   if (dbOk) {
     try {
@@ -626,6 +981,146 @@ export async function sendEmail({
   }
 }
 
+// --- TRUSTED CIRCLE EMAIL DISPATCH HELPERS ---
+export async function sendJourneyStartEmail({
+  recipientEmail,
+  contactName,
+  travelerName,
+  startAddress,
+  destAddress,
+  routeName,
+  safetyScore,
+  durationMin,
+  distanceKm,
+  expectedArrival,
+  shareUrl,
+}: {
+  recipientEmail: string;
+  contactName: string;
+  travelerName: string;
+  startAddress: string;
+  destAddress: string;
+  routeName: string;
+  safetyScore: number;
+  durationMin: number;
+  distanceKm: number;
+  expectedArrival: string;
+  shareUrl: string;
+}) {
+  const etaFormatted = new Date(expectedArrival).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const subject = `🛡️ HerShield Alert: ${travelerName} has started a journey`;
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 540px; margin: 0 auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 24px; background-color: #ffffff; color: #24202B;">
+      <div style="text-align: center; margin-bottom: 20px;">
+        <div style="display: inline-block; padding: 8px 16px; background-color: #F8F6FC; border-radius: 50px; font-weight: 800; font-size: 12px; color: #6C4AB6; letter-spacing: 1px; text-transform: uppercase;">
+          🛡️ HerShield Trusted Circle Alert
+        </div>
+      </div>
+
+      <h2 style="font-size: 22px; font-weight: 900; margin: 0 0 10px 0; color: #24202B; text-align: center;">
+        ${travelerName} is on the move
+      </h2>
+      <p style="font-size: 14px; line-height: 1.6; color: #756D82; margin: 0 0 20px 0; text-align: center;">
+        Hello <strong>${contactName}</strong>, you were chosen as a trusted contact. ${travelerName} has just begun their journey and shared their live tracking status with you.
+      </p>
+
+      <div style="background-color: #F8F6FC; border: 1px solid #e9e3f5; border-radius: 18px; padding: 18px; margin: 20px 0; font-size: 13px; line-height: 1.6;">
+        <div style="margin-bottom: 10px;">
+          <span style="color: #756D82; font-size: 11px; text-transform: uppercase; font-weight: bold; display: block;">📍 Starting Point</span>
+          <span style="font-weight: bold; color: #24202B; font-size: 14px;">${startAddress}</span>
+        </div>
+        <div style="margin-bottom: 10px;">
+          <span style="color: #756D82; font-size: 11px; text-transform: uppercase; font-weight: bold; display: block;">🏁 Destination</span>
+          <span style="font-weight: bold; color: #24202B; font-size: 14px;">${destAddress}</span>
+        </div>
+        <div style="border-top: 1px dashed #d8cde9; padding-top: 10px; margin-top: 10px;">
+          <p style="margin: 4px 0;">⏱️ <strong>Estimated Arrival:</strong> ${etaFormatted} (~${durationMin} min)</p>
+          <p style="margin: 4px 0;">🛡️ <strong>Safety Score:</strong> <span style="color: #2E9B67; font-weight: bold;">${safetyScore}/100</span> (${routeName})</p>
+          <p style="margin: 4px 0;">📏 <strong>Distance:</strong> ${distanceKm} km</p>
+        </div>
+      </div>
+
+      <div style="text-align: center; margin: 26px 0 16px 0;">
+        <a href="${shareUrl}" style="background-color: #2E9B67; color: #ffffff; padding: 14px 32px; text-decoration: none; font-weight: bold; font-size: 14px; border-radius: 14px; display: inline-block; box-shadow: 0 4px 12px rgba(46, 155, 103, 0.25);">
+          📍 Track Live GPS Journey
+        </a>
+      </div>
+
+      <p style="font-size: 11px; color: #948c9f; text-align: center; margin-top: 20px; line-height: 1.4;">
+        🔒 Direct Web Tracking: No account or app download required to view the live journey.<br/>
+        HerShield — Safe travels, real-time reassurance.
+      </p>
+    </div>
+  `;
+
+  return sendEmail({
+    to: recipientEmail,
+    subject,
+    html,
+    text: `HerShield Live Alert: ${travelerName} started a journey to ${destAddress}. Track live: ${shareUrl}`,
+  });
+}
+
+export async function sendJourneySafeArrivalEmail({
+  recipientEmail,
+  contactName,
+  travelerName,
+  destAddress,
+  completedAt,
+  shareUrl,
+}: {
+  recipientEmail: string;
+  contactName: string;
+  travelerName: string;
+  destAddress: string;
+  completedAt: string;
+  shareUrl: string;
+}) {
+  const timeFormatted = new Date(completedAt).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const subject = `✅ HerShield: ${travelerName} has safely arrived at ${destAddress}`;
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 540px; margin: 0 auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 24px; background-color: #ffffff; color: #24202B;">
+      <div style="text-align: center; margin-bottom: 20px;">
+        <div style="display: inline-block; padding: 8px 16px; background-color: #EBF7F1; border-radius: 50px; font-weight: 800; font-size: 12px; color: #2E9B67; letter-spacing: 1px; text-transform: uppercase;">
+          ✅ Safe Arrival Confirmed
+        </div>
+      </div>
+
+      <h2 style="font-size: 22px; font-weight: 900; margin: 0 0 10px 0; color: #24202B; text-align: center;">
+        ${travelerName} reached safely!
+      </h2>
+      <p style="font-size: 14px; line-height: 1.6; color: #756D82; margin: 0 0 20px 0; text-align: center;">
+        Hello <strong>${contactName}</strong>, good news! ${travelerName} has safely arrived at <strong>${destAddress}</strong> at ${timeFormatted} and confirmed their safe arrival.
+      </p>
+
+      <div style="text-align: center; margin: 26px 0 16px 0;">
+        <a href="${shareUrl}" style="background-color: #6C4AB6; color: #ffffff; padding: 12px 28px; text-decoration: none; font-weight: bold; font-size: 13px; border-radius: 12px; display: inline-block;">
+          View Journey Summary
+        </a>
+      </div>
+
+      <p style="font-size: 11px; color: #948c9f; text-align: center; margin-top: 20px; line-height: 1.4;">
+        HerShield — Safe travels, real-time reassurance.
+      </p>
+    </div>
+  `;
+
+  return sendEmail({
+    to: recipientEmail,
+    subject,
+    html,
+    text: `✅ HerShield: ${travelerName} has safely arrived at ${destAddress} (${timeFormatted}).`,
+  });
+}
+
 // --- AUTHENTICATION MIDDLEWARE ---
 export const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction) => {
   const authHeader = req.headers['authorization'];
@@ -656,10 +1151,16 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
 
 // --- HEALTH CHECK ENDPOINTS ---
 const handleHealth = (_req: Request, res: Response) => {
+  const fs = getFirestoreDb();
   res.status(200).json({
     success: true,
     status: 'ok',
     service: 'HerShield API',
+    database: {
+      firestore: Boolean(fs),
+      firestoreDatabaseId: firebaseConfig.firestoreDatabaseId,
+      mongo: Boolean(cached?.conn && mongoose.connection.readyState === 1),
+    },
   });
 };
 
@@ -734,6 +1235,7 @@ export const handleRegister = async (req: Request, res: Response) => {
       emailVerified: false,
       verificationToken,
       verificationTokenExpiry,
+      usedVerificationTokens: [],
       createdAt: new Date().toISOString(),
       profileImage: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}`,
       settings: {
@@ -746,6 +1248,7 @@ export const handleRegister = async (req: Request, res: Response) => {
 
     const verifyUrl = getVerificationUrl(req, verificationToken);
 
+    // Asynchronously dispatch verification email
     const emailHtml = `
       <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 540px; margin: 0 auto; padding: 32px 24px; border: 1px solid #e2e8f0; border-radius: 20px; background-color: #ffffff; color: #24202B;">
         <div style="text-align: center; margin-bottom: 28px;">
@@ -754,7 +1257,7 @@ export const handleRegister = async (req: Request, res: Response) => {
         </div>
         <h2 style="color: #24202B; font-size: 20px; font-weight: 700; margin-bottom: 12px;">Verify Your Email Address</h2>
         <p style="color: #4a5568; font-size: 15px; line-height: 1.6; margin-bottom: 24px;">
-          Welcome to HerShield, <strong>${newUser.name}</strong>! Please verify your email address before logging in to access your trusted safety network.
+          Welcome to HerShield, <strong>${newUser.name}</strong>! Please verify your email address to activate your emergency network and safety tools.
         </p>
         <div style="text-align: center; margin: 32px 0;">
           <a href="${verifyUrl}" style="background-color: #6C4AB6; color: #ffffff; padding: 14px 32px; text-decoration: none; font-weight: 700; font-size: 15px; border-radius: 12px; display: inline-block; box-shadow: 0 4px 12px rgba(108, 74, 182, 0.25);">Verify Email Address</a>
@@ -770,26 +1273,18 @@ export const handleRegister = async (req: Request, res: Response) => {
       </div>
     `;
 
-    const emailResult = await sendEmail({
+    sendEmail({
       to: newUser.email,
       subject: 'HerShield — Verify Your Email Address',
       html: emailHtml,
-      text: `Welcome to HerShield, ${newUser.name}! Verify your email address by clicking: ${verifyUrl}`,
-    });
-
-    if (!emailResult.success) {
-      console.warn(`[REGISTER EMAIL NOTICE] SMTP could not deliver: ${emailResult.error || emailResult.message}`);
-    }
+      text: `Verify your HerShield account: ${verifyUrl}`,
+    }).catch((e) => console.warn('[REGISTER EMAIL NOTICE]', e));
 
     return res.status(201).json({
       success: true,
-      message: emailResult.success
-        ? "Account created successfully! We've sent a verification email to your address. Please check your inbox."
-        : 'Account created! Verification email dispatched.',
+      message: 'Account created! Please check your email to verify your address.',
       email: newUser.email,
-      emailSent: emailResult.success,
-      emailCode: emailResult.code,
-      emailError: emailResult.error,
+      unverified: true,
       verifyUrl: process.env.NODE_ENV !== 'production' ? verifyUrl : undefined,
     });
   } catch (err: unknown) {
@@ -807,56 +1302,46 @@ export const handleRegister = async (req: Request, res: Response) => {
 app.post('/api/auth/register', handleRegister);
 app.post('/auth/register', handleRegister);
 
-// 2. Verify Email Token
+// 2. Verify Email Token (Idempotent & handles reuse gracefully)
 export const handleVerifyEmail = async (req: Request, res: Response) => {
   try {
     const token = (req.query.token || req.query.verifyToken || req.body?.token) as string;
 
-    if (!token) {
+    if (!token || typeof token !== 'string') {
       return res.status(400).json({
         success: false,
         code: 'TOKEN_REQUIRED',
-        error: 'Verification token is required.',
         message: 'Verification token is required.',
       });
     }
 
-    const user = await findUserByVerificationToken(token);
+    const cleanToken = token.trim();
+    const user = (await findUserByVerificationToken(cleanToken)) || (await findUserByUsedVerificationToken(cleanToken));
 
-    if (!user) {
-      return res.status(400).json({
-        success: false,
-        code: 'INVALID_TOKEN',
-        error: 'This verification link is invalid or has already been used.',
-        message: 'This verification link is invalid or has already been used.',
+    if (user) {
+      user.emailVerified = true;
+      user.usedVerificationTokens = Array.from(new Set([...(user.usedVerificationTokens || []), cleanToken]));
+      delete user.verificationToken;
+      delete user.verificationTokenExpiry;
+      await saveUser(user);
+
+      return res.json({
+        success: true,
+        message: 'Email verified successfully! You can now log in to HerShield.',
+        email: user.email,
       });
     }
 
-    if (user.verificationTokenExpiry && user.verificationTokenExpiry < Date.now()) {
-      return res.status(400).json({
-        success: false,
-        code: 'TOKEN_EXPIRED',
-        error: 'This verification link has expired. Please request a new verification email.',
-        message: 'This verification link has expired. Please request a new verification email.',
-      });
-    }
-
-    user.emailVerified = true;
-    delete user.verificationToken;
-    delete user.verificationTokenExpiry;
-    await saveUser(user);
-
-    return res.json({
-      success: true,
-      message: 'Email verified successfully! You can now log in to HerShield.',
-      email: user.email,
+    return res.status(400).json({
+      success: false,
+      code: 'INVALID_TOKEN',
+      message: 'This verification link is invalid or expired. You can request a new verification email from the sign-in screen.',
     });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : 'Verification failed';
     return res.status(500).json({
       success: false,
       code: 'SERVER_ERROR',
-      error: errorMsg,
       message: errorMsg,
     });
   }
@@ -1041,13 +1526,6 @@ export const handleLogin = async (req: Request, res: Response) => {
     }
 
     if (!user.emailVerified) {
-      // Ensure user has valid verification token
-      if (!user.verificationToken) {
-        user.verificationToken = crypto.randomBytes(32).toString('hex');
-        user.verificationTokenExpiry = Date.now() + 24 * 3600 * 1000;
-        await saveUser(user);
-      }
-
       return res.status(403).json({
         success: false,
         code: 'EMAIL_NOT_VERIFIED',
@@ -1845,27 +2323,20 @@ export const handleCreateJourney = async (req: AuthRequest, res: Response) => {
 
     if (Array.isArray(contactsList)) {
       for (const contact of contactsList) {
-        if (contact.contact && contact.contact.includes('@')) {
-          sendEmail({
-            to: contact.contact,
-            subject: `HerShield — ${travelerName} has started a journey`,
-            html: `
-              <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 20px; background-color: #ffffff;">
-                <h2 style="color: #6C4AB6;">HerShield Trusted Circle Alert</h2>
-                <p>Hello <strong>${contact.name}</strong>,</p>
-                <p><strong>${travelerName}</strong> has selected you as a trusted contact for their journey and is sharing their status with you.</p>
-                <div style="background-color: #F8F6FC; padding: 16px; border-radius: 12px; margin: 16px 0; font-size: 13px;">
-                  <p>📍 <strong>From:</strong> ${startLocation.address}</p>
-                  <p>🏁 <strong>To:</strong> ${destination.address}</p>
-                  <p>⏱️ <strong>Estimated Arrival:</strong> ${new Date(expectedArrival).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-                  <p>🛡️ <strong>Route:</strong> ${selectedRoute.name}</p>
-                </div>
-                <div style="text-align: center; margin: 24px 0;">
-                  <a href="${shareUrl}" style="background-color: #2E9B67; color: #ffffff; padding: 14px 28px; text-decoration: none; font-weight: bold; border-radius: 14px; display: inline-block;">View Journey</a>
-                </div>
-              </div>
-            `,
-            text: `${travelerName} started a journey to ${destination.address}. Follow live status: ${shareUrl}`,
+        const contactEmail = (contact.contact || '').trim();
+        if (contactEmail.includes('@')) {
+          sendJourneyStartEmail({
+            recipientEmail: contactEmail,
+            contactName: contact.name || 'Friend',
+            travelerName,
+            startAddress: startLocation.address,
+            destAddress: destination.address,
+            routeName: selectedRoute.name,
+            safetyScore: selectedRoute.safetyScore,
+            durationMin: selectedRoute.durationMin,
+            distanceKm: selectedRoute.distanceKm,
+            expectedArrival,
+            shareUrl,
           }).catch((err) => console.warn('Notification email error:', err));
         }
       }
@@ -2013,6 +2484,30 @@ export const handleCompleteJourney = async (req: AuthRequest, res: Response) => 
       console.warn('Socket status emit error:', e);
     }
 
+    // Send safe arrival emails to trusted contacts
+    const user = await findUserById(journey.userId);
+    const travelerName = user ? user.name : 'Your friend';
+    const host = req.get('host') || 'localhost:3000';
+    const protocol = req.protocol || 'http';
+    const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || `${protocol}://${host}`;
+    const shareUrl = `${baseUrl}/share/${journey.shareToken || journey.id}`;
+
+    if (Array.isArray(journey.trustedContacts)) {
+      for (const contact of journey.trustedContacts) {
+        const contactEmail = (contact.contact || '').trim();
+        if (contactEmail.includes('@')) {
+          sendJourneySafeArrivalEmail({
+            recipientEmail: contactEmail,
+            contactName: contact.name || 'Friend',
+            travelerName,
+            destAddress: journey.destination.address,
+            completedAt: journey.endTime,
+            shareUrl,
+          }).catch((err) => console.warn('Arrival email error:', err));
+        }
+      }
+    }
+
     return res.json(journey);
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : 'Failed to complete journey';
@@ -2027,6 +2522,76 @@ export const handleCompleteJourney = async (req: AuthRequest, res: Response) => 
 
 app.post('/api/journeys/:id/complete', authenticateToken, handleCompleteJourney);
 app.post('/journeys/:id/complete', authenticateToken, handleCompleteJourney);
+
+export const handleNotifyCircle = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({
+        success: false,
+        code: 'UNAUTHORIZED',
+        error: 'Unauthorized',
+        message: 'Unauthorized',
+      });
+    }
+
+    const journey = await getJourneyById(req.params.id);
+    if (!journey || journey.userId !== req.user.id) {
+      return res.status(404).json({
+        success: false,
+        code: 'NOT_FOUND',
+        error: 'Journey not found.',
+        message: 'Journey not found.',
+      });
+    }
+
+    const user = await findUserById(journey.userId);
+    const travelerName = user ? user.name : 'Your friend';
+    const host = req.get('host') || 'localhost:3000';
+    const protocol = req.protocol || 'http';
+    const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || `${protocol}://${host}`;
+    const shareUrl = `${baseUrl}/share/${journey.shareToken || journey.id}`;
+
+    let sentCount = 0;
+    if (Array.isArray(journey.trustedContacts)) {
+      for (const contact of journey.trustedContacts) {
+        const contactEmail = (contact.contact || '').trim();
+        if (contactEmail.includes('@')) {
+          await sendJourneyStartEmail({
+            recipientEmail: contactEmail,
+            contactName: contact.name || 'Friend',
+            travelerName,
+            startAddress: journey.startLocation.address,
+            destAddress: journey.destination.address,
+            routeName: journey.selectedRoute.name,
+            safetyScore: journey.selectedRoute.safetyScore,
+            durationMin: journey.selectedRoute.durationMin,
+            distanceKm: journey.selectedRoute.distanceKm,
+            expectedArrival: journey.expectedArrival,
+            shareUrl,
+          }).catch((err) => console.warn('Resend alert email error:', err));
+          sentCount++;
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: `Journey email alert dispatched to ${sentCount} contact${sentCount === 1 ? '' : 's'}.`,
+      count: sentCount,
+    });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Failed to notify circle';
+    return res.status(500).json({
+      success: false,
+      code: 'SERVER_ERROR',
+      error: errorMsg,
+      message: errorMsg,
+    });
+  }
+};
+
+app.post('/api/journeys/:id/notify-circle', authenticateToken, handleNotifyCircle);
+app.post('/journeys/:id/notify-circle', authenticateToken, handleNotifyCircle);
 
 export const handleEndJourney = async (req: AuthRequest, res: Response) => {
   try {

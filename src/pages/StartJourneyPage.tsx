@@ -103,17 +103,21 @@ export const StartJourneyPage: React.FC<StartJourneyPageProps> = ({
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="font-bold text-[#24202B] text-sm flex items-center gap-2">
-              <Users className="w-4 h-4 text-[#E88BA5]" />
-              <span>Choose Trusted Contacts to Notify</span>
+              <Users className="w-4 h-4 text-[#6C4AB6]" />
+              <span>Email Journey Alert to Trusted Circle</span>
             </h3>
             <span className="text-xs text-[#756D82] font-medium">
               {selectedContactIds.length} of {trustedContacts.length} selected
             </span>
           </div>
 
+          <p className="text-xs text-[#756D82]">
+            Selected contacts will be emailed your live journey tracking link, route details, and estimated arrival time.
+          </p>
+
           {trustedContacts.length === 0 ? (
             <p className="text-xs text-[#D99A24] bg-[#FEF8EC] p-3 rounded-xl border border-[#D99A24]/30">
-              No contacts in your Trusted Circle yet. You can still proceed or add contacts in the Trusted Circle tab.
+              No contacts in your Trusted Circle yet. You can still proceed or add contacts with their email in the Trusted Circle tab.
             </p>
           ) : (
             <div className="space-y-2">
@@ -141,8 +145,8 @@ export const StartJourneyPage: React.FC<StartJourneyPageProps> = ({
                       </div>
                     </div>
 
-                    <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-white border border-slate-200">
-                      {c.verificationStatus}
+                    <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-white border border-slate-200 text-[#6C4AB6]">
+                      ✉️ Will Email
                     </span>
                   </div>
                 );

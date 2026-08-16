@@ -2,50 +2,9 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Default-deny safety net
     match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // Helper functions
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-
-    // Users Collection
-    match /users/{userId} {
-      allow get: if isSignedIn() && (request.auth.uid == userId || resource.data.id == request.auth.uid);
-      allow list: if isSignedIn() && resource.data.id == request.auth.uid;
-      allow create: if isSignedIn() && isValidId(userId);
-      allow update: if isSignedIn() && (request.auth.uid == userId || resource.data.id == request.auth.uid);
-      allow delete: if isSignedIn() && (request.auth.uid == userId || resource.data.id == request.auth.uid);
-    }
-
-    // Contacts Collection
-    match /contacts/{contactId} {
-      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() && isValidId(contactId) && request.resource.data.userId == request.auth.uid;
-      allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
-    }
-
-    // Journeys Collection
-    match /journeys/{journeyId} {
-      // Allow public get if someone has the direct shared journey ID / token
-      allow get: if true;
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() && isValidId(journeyId) && request.resource.data.userId == request.auth.uid;
-      allow update: if (isSignedIn() && resource.data.userId == request.auth.uid) || (resource.data.shareToken != null);
-      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow read, write: if true;
     }
   }
 }
+

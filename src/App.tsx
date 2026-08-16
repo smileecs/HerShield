@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Navbar } from './components/Navbar';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { Footer } from './components/Footer';
@@ -33,6 +33,9 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [initialResetToken, setInitialResetToken] = useState<string | null>(null);
+  const [authInitialEmail, setAuthInitialEmail] = useState<string | null>(null);
+  const [authInitialSuccess, setAuthInitialSuccess] = useState<string | null>(null);
+  const verifyProcessedRef = useRef(false);
 
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [contacts, setContacts] = useState<TrustedContact[]>([]);
@@ -73,10 +76,16 @@ export default function App() {
     const verifyToken = urlParams.get('verifyToken') || urlParams.get('token');
     const resetToken = urlParams.get('resetToken');
 
-    if (verifyToken) {
+    if (verifyToken && !verifyProcessedRef.current) {
+      verifyProcessedRef.current = true;
       apiVerifyEmail(verifyToken)
         .then((res) => {
-          showToast(res.message || 'Email verified successfully! You can now sign in.', 'success');
+          const successMsg = res.message || 'Email verified successfully! You can now sign in.';
+          showToast(successMsg, 'success');
+          if (res.email) {
+            setAuthInitialEmail(res.email);
+          }
+          setAuthInitialSuccess(successMsg);
           setIsAuthModalOpen(true);
         })
         .catch((err) => {
@@ -328,10 +337,16 @@ export default function App() {
       {/* Auth Modal */}
       <AuthModal
         isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
+        onClose={() => {
+          setIsAuthModalOpen(false);
+          setAuthInitialEmail(null);
+          setAuthInitialSuccess(null);
+        }}
         onSuccess={handleAuthSuccess}
         showToast={showToast}
         initialResetToken={initialResetToken}
+        initialEmail={authInitialEmail}
+        initialSuccessMessage={authInitialSuccess}
       />
     </div>
   );
