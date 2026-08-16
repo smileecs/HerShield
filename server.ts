@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import http from 'http';
 import path from 'path';
 import cors from 'cors';
@@ -13,21 +13,48 @@ import mongoose from 'mongoose';
 import { Server as SocketIOServer } from 'socket.io';
 
 const PORT = 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'hershield_secure_jwt_secret_key';
 
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    // In local development fallback if not set, but warn
+    return 'hershield_development_jwt_secret_key_32bytes_minimum';
+  }
+  return secret;
+}
+
+// --- EXPRESS & SOCKET.IO SETUP ---
 const app = express();
 const server = http.createServer(app);
+
+// Initialize Socket.IO with safe CORS
 const io = new SocketIOServer(server, {
   cors: {
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
   },
+  transports: ['websocket', 'polling'],
 });
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// --- DATABASE MODELS & MONGOOSE SCHEMAS ---
+// Middleware to ensure all /api/* routes send JSON content-type
+app.use('/api', (_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('Content-Type', 'application/json');
+  next();
+});
+
+// --- DATA TYPES & INTERFACES ---
+export interface UserSettings {
+  locationSharingPreference?: string;
+  saveJourneyHistory?: boolean;
+  sosCountdownSeconds?: number;
+  autoShareWithPolice?: boolean;
+  [key: string]: unknown;
+}
+
 export interface UserRecord {
   id: string;
   name: string;
@@ -40,7 +67,7 @@ export interface UserRecord {
   resetTokenExpiry?: number;
   createdAt: string;
   profileImage?: string;
-  settings?: any;
+  settings?: UserSettings;
 }
 
 export interface TrustedContactRecord {
@@ -54,6 +81,32 @@ export interface TrustedContactRecord {
   createdAt: string;
 }
 
+export interface SafetyMarker {
+  id: string;
+  type: 'police' | 'lighting' | 'transit' | 'safe_haven' | 'cctv';
+  title: string;
+  description: string;
+  lat: number;
+  lng: number;
+}
+
+export interface RouteOption {
+  id: string;
+  name: string;
+  tag: string;
+  distanceKm: number;
+  durationMin: number;
+  safetyScore: number;
+  safetyStatus: string;
+  safetyBadgeColor: 'green' | 'amber' | 'blue';
+  publicFacilitiesCount: number;
+  mainRoadPercentage: number;
+  lightingRating: string;
+  reportedIncidentsNearby: string;
+  path: Array<{ lat: number; lng: number }>;
+  safetyMarkers: SafetyMarker[];
+}
+
 export interface JourneyRecord {
   id: string;
   userId: string;
@@ -61,8 +114,8 @@ export interface JourneyRecord {
   shareTokenExpiry: number;
   startLocation: { address: string; lat: number; lng: number };
   destination: { address: string; lat: number; lng: number };
-  selectedRoute: any;
-  trustedContacts: any[];
+  selectedRoute: RouteOption;
+  trustedContacts: TrustedContactRecord[];
   sharingPreference: string;
   startTime: string;
   expectedArrival: string;
@@ -74,12 +127,16 @@ export interface JourneyRecord {
   lastUpdateNote?: string;
 }
 
-// In-Memory Fallback Stores
-const usersStore: Record<string, UserRecord> = {};
-const contactsStore: Record<string, TrustedContactRecord[]> = {};
-const journeysStore: Record<string, JourneyRecord> = {};
+// Authenticated Request interface
+export interface AuthRequest extends Request {
+  user?: {
+    id: string;
+    email: string;
+    name: string;
+  };
+}
 
-// Mongoose Schemas
+// --- MONGOOSE SCHEMAS & MODELS ---
 const UserSchema = new mongoose.Schema({
   id: { type: String, required: true, unique: true, index: true },
   name: { type: String, required: true },
@@ -126,43 +183,54 @@ const JourneySchema = new mongoose.Schema({
   lastUpdateNote: { type: String },
 });
 
-export const UserModel: any = mongoose.models.User || mongoose.model('User', UserSchema);
-export const ContactModel: any = mongoose.models.Contact || mongoose.model('Contact', ContactSchema);
-export const JourneyModel: any = mongoose.models.Journey || mongoose.model('Journey', JourneySchema);
+export const UserModel: mongoose.Model<any> = mongoose.models.User || mongoose.model('User', UserSchema);
+export const ContactModel: mongoose.Model<any> = mongoose.models.Contact || mongoose.model('Contact', ContactSchema);
+export const JourneyModel: mongoose.Model<any> = mongoose.models.Journey || mongoose.model('Journey', JourneySchema);
 
-let isDbConnected = false;
+// In-Memory Fallback Stores for Resilience
+const usersStore: Record<string, UserRecord> = {};
+const contactsStore: Record<string, TrustedContactRecord[]> = {};
+const journeysStore: Record<string, JourneyRecord> = {};
+
+// Safe Cached Mongoose Connection for Serverless & Long-running
+let cachedMongoPromise: Promise<typeof mongoose> | null = null;
+
 async function connectDb(): Promise<boolean> {
   const uri = process.env.MONGODB_URI;
   if (!uri) {
     return false;
   }
-  if (isDbConnected && mongoose.connection.readyState === 1) {
+  if (mongoose.connection.readyState === 1) {
     return true;
   }
-  try {
-    await mongoose.connect(uri, {
+  if (!cachedMongoPromise) {
+    cachedMongoPromise = mongoose.connect(uri, {
       serverSelectionTimeoutMS: 5000,
       connectTimeoutMS: 10000,
+      bufferCommands: false,
     });
-    isDbConnected = true;
-    console.log('✅ [DATABASE] Connected to MongoDB persistence layer successfully');
+  }
+  try {
+    await cachedMongoPromise;
     return true;
-  } catch (err: any) {
-    console.error('⚠️ [DATABASE NOTICE] MongoDB connection attempt:', err.message);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn('⚠️ [DATABASE NOTICE] MongoDB connection attempt failed:', message);
+    cachedMongoPromise = null;
     return false;
   }
 }
 
-// --- PERSISTENT DATA LAYER HELPERS ---
+// --- DATABASE DATA LAYER HELPERS ---
 async function findUserByEmail(email: string): Promise<UserRecord | null> {
   const cleanEmail = (email || '').trim().toLowerCase();
   const dbOk = await connectDb();
   if (dbOk) {
     try {
       const doc = await UserModel.findOne({ email: cleanEmail }).lean();
-      if (doc) return doc as UserRecord;
+      if (doc) return doc as unknown as UserRecord;
     } catch (e) {
-      console.warn('DB user lookup error, checking memory:', e);
+      console.warn('DB user lookup error, checking fallback store:', e);
     }
   }
   return Object.values(usersStore).find((u) => u.email.toLowerCase() === cleanEmail) || null;
@@ -173,7 +241,7 @@ async function findUserById(id: string): Promise<UserRecord | null> {
   if (dbOk) {
     try {
       const doc = await UserModel.findOne({ id }).lean();
-      if (doc) return doc as UserRecord;
+      if (doc) return doc as unknown as UserRecord;
     } catch (e) {
       console.warn('DB user lookup by ID error:', e);
     }
@@ -186,9 +254,9 @@ async function findUserByVerificationToken(token: string): Promise<UserRecord | 
   if (dbOk) {
     try {
       const doc = await UserModel.findOne({ verificationToken: token }).lean();
-      if (doc) return doc as UserRecord;
+      if (doc) return doc as unknown as UserRecord;
     } catch (e) {
-      console.warn('DB user lookup by verify token error:', e);
+      console.warn('DB user lookup by verification token error:', e);
     }
   }
   return Object.values(usersStore).find((u) => u.verificationToken === token) || null;
@@ -199,7 +267,7 @@ async function findUserByResetToken(token: string): Promise<UserRecord | null> {
   if (dbOk) {
     try {
       const doc = await UserModel.findOne({ resetToken: token }).lean();
-      if (doc) return doc as UserRecord;
+      if (doc) return doc as unknown as UserRecord;
     } catch (e) {
       console.warn('DB user lookup by reset token error:', e);
     }
@@ -225,7 +293,7 @@ async function getUserContacts(userId: string): Promise<TrustedContactRecord[]> 
   if (dbOk) {
     try {
       const list = await ContactModel.find({ userId }).lean();
-      if (list && list.length > 0) return list as TrustedContactRecord[];
+      if (list && list.length > 0) return list as unknown as TrustedContactRecord[];
     } catch (e) {
       console.warn('DB contacts lookup error:', e);
     }
@@ -250,7 +318,11 @@ async function addContact(contact: TrustedContactRecord): Promise<TrustedContact
   return contact;
 }
 
-async function updateContact(userId: string, contactId: string, updates: Partial<TrustedContactRecord>): Promise<TrustedContactRecord | null> {
+async function updateContact(
+  userId: string,
+  contactId: string,
+  updates: Partial<TrustedContactRecord>
+): Promise<TrustedContactRecord | null> {
   if (contactsStore[userId]) {
     const idx = contactsStore[userId].findIndex((c) => c.id === contactId);
     if (idx !== -1) {
@@ -262,7 +334,7 @@ async function updateContact(userId: string, contactId: string, updates: Partial
   if (dbOk) {
     try {
       const doc = await ContactModel.findOneAndUpdate({ id: contactId, userId }, updates, { new: true }).lean();
-      if (doc) return doc as TrustedContactRecord;
+      if (doc) return doc as unknown as TrustedContactRecord;
     } catch (e) {
       console.error('DB contact update error:', e);
     }
@@ -293,7 +365,7 @@ async function getUserJourneys(userId: string): Promise<JourneyRecord[]> {
   if (dbOk) {
     try {
       const list = await JourneyModel.find({ userId }).sort({ startTime: -1 }).lean();
-      if (list && list.length > 0) return list as JourneyRecord[];
+      if (list && list.length > 0) return list as unknown as JourneyRecord[];
     } catch (e) {
       console.warn('DB journeys lookup error:', e);
     }
@@ -306,7 +378,7 @@ async function getJourneyById(id: string): Promise<JourneyRecord | null> {
   if (dbOk) {
     try {
       const doc = await JourneyModel.findOne({ id }).lean();
-      if (doc) return doc as JourneyRecord;
+      if (doc) return doc as unknown as JourneyRecord;
     } catch (e) {
       console.warn('DB journey lookup error:', e);
     }
@@ -319,7 +391,7 @@ async function getJourneyByShareToken(shareToken: string): Promise<JourneyRecord
   if (dbOk) {
     try {
       const doc = await JourneyModel.findOne({ shareToken }).lean();
-      if (doc) return doc as JourneyRecord;
+      if (doc) return doc as unknown as JourneyRecord;
     } catch (e) {
       console.warn('DB shared journey lookup error:', e);
     }
@@ -353,11 +425,25 @@ async function deleteJourney(id: string, userId: string): Promise<boolean> {
   return true;
 }
 
-// --- EMAIL SERVICE CONFIGURATION ---
-function getEmailConfig() {
-  const user = process.env.GMAIL_USER || process.env.EMAIL_USER || process.env.SMTP_USER || '';
-  const password = process.env.GMAIL_APP_PASSWORD || process.env.EMAIL_PASSWORD || process.env.EMAIL_PASS || process.env.SMTP_PASS || process.env.GMAIL_PASSWORD || '';
-  const host = process.env.SMTP_HOST || process.env.EMAIL_HOST || 'smtp.gmail.com';
+// --- EMAIL SERVICE CONFIGURATION & DISPATCH ---
+interface EmailConfig {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  from: string;
+}
+
+function getEmailConfig(): EmailConfig {
+  const user = process.env.EMAIL_USER || process.env.GMAIL_USER || process.env.SMTP_USER || '';
+  const password =
+    process.env.EMAIL_PASSWORD ||
+    process.env.GMAIL_APP_PASSWORD ||
+    process.env.EMAIL_PASS ||
+    process.env.SMTP_PASS ||
+    process.env.GMAIL_PASSWORD ||
+    '';
+  const host = process.env.EMAIL_HOST || process.env.SMTP_HOST || 'smtp.gmail.com';
   const port = parseInt(process.env.EMAIL_PORT || process.env.SMTP_PORT || '587', 10);
   const from = process.env.EMAIL_FROM || (user ? `HerShield Safety <${user}>` : 'HerShield Safety <noreply@hershield.app>');
 
@@ -374,7 +460,8 @@ function createEmailTransporter() {
   const hostLower = (host || '').toLowerCase();
   const userLower = (user || '').toLowerCase();
 
-  if (process.env.GMAIL_USER || process.env.GMAIL_APP_PASSWORD || hostLower.includes('gmail') || userLower.endsWith('@gmail.com')) {
+  // If using Gmail or port 587
+  if (hostLower.includes('gmail') || userLower.endsWith('@gmail.com')) {
     return nodemailer.createTransport({
       service: 'gmail',
       auth: {
@@ -401,14 +488,14 @@ function createEmailTransporter() {
   });
 }
 
-async function verifyEmailTransport(): Promise<{ success: boolean; code?: string; message: string; details?: any }> {
+export async function verifyEmailTransport(): Promise<{ success: boolean; code?: string; message: string; details?: string }> {
   const { host, user, password } = getEmailConfig();
 
   if (!host || !user || !password) {
     return {
       success: false,
       code: 'EMAIL_CONFIGURATION_ERROR',
-      message: 'Email verification service is not configured correctly on the server. Missing SMTP environment variables.',
+      message: 'Email verification service is not configured correctly. Missing SMTP environment variables.',
     };
   }
 
@@ -427,174 +514,183 @@ async function verifyEmailTransport(): Promise<{ success: boolean; code?: string
       success: true,
       message: 'SMTP Email Transport connection verified successfully.',
     };
-  } catch (err: any) {
-    console.error('❌ [SMTP VERIFY ERROR]', err.message);
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    console.error('❌ [SMTP VERIFY ERROR]', errorMsg);
     return {
       success: false,
       code: 'EMAIL_SERVICE_ERROR',
-      message: 'Unable to connect to the email service. Please check your SMTP server credentials and network access.',
-      details: err.message,
+      message: 'Unable to connect to the SMTP email service.',
+      details: errorMsg,
     };
   }
 }
 
-async function sendEmail({ to, subject, html, text }: { to: string; subject: string; html: string; text?: string }) {
-  const { from, host, user, password } = getEmailConfig();
+export async function sendEmail({
+  to,
+  subject,
+  html,
+  text,
+}: {
+  to: string;
+  subject: string;
+  html: string;
+  text?: string;
+}): Promise<{
+  success: boolean;
+  code?: string;
+  message?: string;
+  error?: string;
+  messageId?: string;
+}> {
+  const { from, user, password } = getEmailConfig();
 
   console.log(`[EMAIL SEND START] Recipient: ${to} | Subject: "${subject}"`);
 
   if (!user || !password) {
-    console.log(`\n==================================================`);
-    console.log(`✉️ [HERShield SERVER EMAIL DISPATCH - NO SMTP ENV]`);
-    console.log(`To: ${to}`);
-    console.log(`Subject: ${subject}`);
-    console.log(`Text: ${text || html.replace(/<[^>]+>/g, '').substring(0, 150)}`);
-    console.log(`==================================================\n`);
+    console.warn(`[EMAIL NOTICE] No SMTP credentials provided in environment variables.`);
     return {
       success: false,
       code: 'EMAIL_CONFIGURATION_ERROR',
       message: 'Email verification service is not configured.',
-      error: 'EMAIL_USER / GMAIL_USER or EMAIL_PASSWORD / GMAIL_APP_PASSWORD environment variables are missing.',
-      simulated: false,
+      error: 'EMAIL_USER or EMAIL_PASSWORD environment variables are missing.',
     };
   }
 
   const transporter = createEmailTransporter();
   if (!transporter) {
-    console.error(`❌ [EMAIL SEND FAIL] Transporter creation failed for ${to}`);
     return {
       success: false,
       code: 'EMAIL_CONFIGURATION_ERROR',
-      message: 'Email configuration error.',
+      message: 'Failed to initialize email transport.',
       error: 'Transporter creation failed.',
-      simulated: false,
     };
   }
 
   try {
     const info = await transporter.sendMail({ from, to, subject, html, text });
-    console.log(`✉️ [SMTP SUCCESS] Email delivered to ${to} | MessageID: ${info.messageId} | Accepted: ${JSON.stringify(info.accepted)} | Rejected: ${JSON.stringify(info.rejected)}`);
-    return { success: true, messageId: info.messageId, accepted: info.accepted, rejected: info.rejected, simulated: false };
-  } catch (err: any) {
-    console.error(`❌ [SMTP ERROR] Email delivery failed to ${to}:`, err.message || err);
+    console.log(`✉️ [SMTP SUCCESS] Email delivered to ${to} | MessageID: ${info.messageId}`);
+    return {
+      success: true,
+      messageId: info.messageId,
+      message: 'Email delivered successfully.',
+    };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    console.error(`❌ [SMTP ERROR] Delivery failed to ${to}:`, errorMsg);
     return {
       success: false,
       code: 'EMAIL_SEND_FAILED',
-      message: 'We could not send the verification email. Please check the email service configuration.',
-      error: err.message || String(err),
-      simulated: false,
+      message: 'Unable to send verification email. Please check your email configuration.',
+      error: errorMsg,
     };
   }
 }
 
-// --- AUTH MIDDLEWARE ---
-const authenticateToken = (req: any, res: any, next: any) => {
+// --- AUTHENTICATION MIDDLEWARE ---
+export const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
-    return res.status(401).json({ success: false, error: 'Access token required', message: 'Access token required' });
+    return res.status(401).json({
+      success: false,
+      code: 'UNAUTHORIZED',
+      error: 'Access token required',
+      message: 'Access token required',
+    });
   }
 
-  jwt.verify(token, JWT_SECRET, (err: any, decoded: any) => {
-    if (err) {
-      return res.status(403).json({ success: false, error: 'Invalid or expired session token', message: 'Invalid or expired session token' });
+  jwt.verify(token, getJwtSecret(), (err: unknown, decoded: unknown) => {
+    if (err || !decoded) {
+      return res.status(403).json({
+        success: false,
+        code: 'FORBIDDEN',
+        error: 'Invalid or expired session token',
+        message: 'Invalid or expired session token',
+      });
     }
-    req.user = decoded;
+    req.user = decoded as { id: string; email: string; name: string };
     next();
   });
 };
 
-// --- HEALTH CHECK ---
-app.get('/api/health', (_req, res) => {
-  res.setHeader('Content-Type', 'application/json');
+// --- HEALTH CHECK ENDPOINTS ---
+const handleHealth = (_req: Request, res: Response) => {
   res.status(200).json({
     success: true,
     status: 'ok',
     service: 'HerShield API',
   });
-});
+};
 
-// Support health check without /api prefix if Vercel strips it
-app.get('/health', (_req, res) => {
-  res.setHeader('Content-Type', 'application/json');
-  res.status(200).json({
-    success: true,
-    status: 'ok',
-    service: 'HerShield API',
-  });
-});
+app.get('/api/health', handleHealth);
+app.get('/health', handleHealth);
 
-// --- AUTHENTICATION API ROUTES ---
-const handleRegister = async (req: express.Request, res: express.Response) => {
-  res.setHeader('Content-Type', 'application/json');
-  console.log(`\n==================================================`);
-  console.log(`[REGISTER START] Received signup request`);
+// --- AUTHENTICATION API ENDPOINTS ---
+
+// 1. User Registration
+export const handleRegister = async (req: Request, res: Response) => {
   try {
     const { name, email, password, confirmPassword } = req.body || {};
-    console.log(`[REQUEST VALIDATION] Email: ${email} | Name: ${name}`);
 
     if (!name || !email || !password) {
-      console.log(`[REGISTER FAIL] Missing required fields`);
       return res.status(400).json({
         success: false,
+        code: 'VALIDATION_ERROR',
         error: 'Full name, email, and password are required.',
         message: 'Full name, email, and password are required.',
       });
     }
 
     if (confirmPassword !== undefined && password !== confirmPassword) {
-      console.log(`[REGISTER FAIL] Passwords do not match`);
       return res.status(400).json({
         success: false,
+        code: 'PASSWORD_MISMATCH',
         error: 'Passwords do not match.',
         message: 'Passwords do not match.',
       });
     }
 
-    if (password.length < 6) {
-      console.log(`[REGISTER FAIL] Password too short`);
+    if (typeof password !== 'string' || password.length < 6) {
       return res.status(400).json({
         success: false,
+        code: 'PASSWORD_TOO_SHORT',
         error: 'Password must be at least 6 characters long.',
         message: 'Password must be at least 6 characters long.',
       });
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      console.log(`[REGISTER FAIL] Invalid email format`);
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!emailRegex.test(normalizedEmail)) {
       return res.status(400).json({
         success: false,
+        code: 'INVALID_EMAIL',
         error: 'Please enter a valid email address.',
         message: 'Please enter a valid email address.',
       });
     }
 
-    console.log(`[USER LOOKUP] Checking if ${email} already exists`);
-    const existingUser = await findUserByEmail(email);
+    const existingUser = await findUserByEmail(normalizedEmail);
     if (existingUser) {
-      console.log(`[REGISTER FAIL] Duplicate user account: ${email}`);
       return res.status(409).json({
         success: false,
+        code: 'EMAIL_IN_USE',
         error: 'An account with this email address already exists.',
         message: 'An account with this email address already exists.',
       });
     }
 
-    console.log(`[PASSWORD HASH] Hashing password for ${email}`);
     const id = `usr_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-    const passwordHash = bcrypt.hashSync(password, 10);
-
-    console.log(`[TOKEN CREATION] Generating verification token for ${email}`);
+    const passwordHash = await bcrypt.hash(password, 10);
     const verificationToken = crypto.randomBytes(32).toString('hex');
     const verificationTokenExpiry = Date.now() + 24 * 3600 * 1000; // 24 hours
 
-    console.log(`[USER CREATION] Saving user ${id} (${email}) to store with emailVerified=false`);
     const newUser: UserRecord = {
       id,
       name: name.trim(),
-      email: email.trim().toLowerCase(),
+      email: normalizedEmail,
       passwordHash,
       emailVerified: false,
       verificationToken,
@@ -609,8 +705,8 @@ const handleRegister = async (req: express.Request, res: express.Response) => {
 
     await saveUser(newUser);
 
-    const host = req.get('host');
-    const protocol = req.protocol;
+    const host = req.get('host') || 'localhost:3000';
+    const protocol = req.protocol || 'http';
     const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || `${protocol}://${host}`;
     const verifyUrl = `${baseUrl}?verifyToken=${verificationToken}`;
 
@@ -622,7 +718,7 @@ const handleRegister = async (req: express.Request, res: express.Response) => {
         </div>
         <h2 style="color: #24202B; font-size: 20px; margin-bottom: 12px;">Verify Your Email Address</h2>
         <p style="color: #4a5568; font-size: 14px; line-height: 1.6;">
-          Welcome to HerShield, <strong>${name}</strong>! Please verify your email address before logging in to access your trusted safety network.
+          Welcome to HerShield, <strong>${newUser.name}</strong>! Please verify your email address before logging in to access your trusted safety network.
         </p>
         <div style="text-align: center; margin: 32px 0;">
           <a href="${verifyUrl}" style="background-color: #6C4AB6; color: #ffffff; padding: 14px 28px; text-decoration: none; font-weight: bold; font-size: 14px; border-radius: 14px; display: inline-block;">Verify Email Address</a>
@@ -632,38 +728,35 @@ const handleRegister = async (req: express.Request, res: express.Response) => {
           <a href="${verifyUrl}" style="color: #6C4AB6; word-break: break-all;">${verifyUrl}</a>
         </p>
         <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;">
-        <p style="color: #a0aec0; font-size: 11px; text-align: center;">This link will expire in 24 hours.</p>
+        <p style="color: #a0aec0; font-size: 11px; text-align: center;">This verification link will expire in 24 hours.</p>
       </div>
     `;
 
-    console.log(`[EMAIL SEND START] Dispatching verification email to recipient: ${newUser.email}`);
     const emailResult = await sendEmail({
       to: newUser.email,
       subject: 'HerShield — Verify Your Email Address',
       html: emailHtml,
-      text: `Welcome to HerShield, ${name}! Verify your email address by clicking: ${verifyUrl}`,
+      text: `Welcome to HerShield, ${newUser.name}! Verify your email address by clicking: ${verifyUrl}`,
     });
 
-    console.log(`[EMAIL SEND RESULT] Result:`, emailResult);
-    console.log(`[REGISTER SUCCESS] User ${id} created successfully.`);
-    console.log(`==================================================\n`);
-
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: emailResult.success
-        ? "Account created successfully! We've sent a verification email to your email address. Please check your inbox."
-        : "Account created! Please check your email to verify your account.",
+        ? "Account created successfully! We've sent a verification email to your address. Please check your inbox."
+        : 'Account created! Please check your email to verify your account.',
       email: newUser.email,
       emailSent: emailResult.success,
       emailCode: emailResult.code,
       emailError: emailResult.error,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Unable to create your account.';
     console.error('[REGISTER ERROR]', err);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      error: err.message || 'Unable to create your account. Please try again.',
-      message: err.message || 'Unable to create your account. Please try again.',
+      code: 'SERVER_ERROR',
+      error: errorMsg,
+      message: errorMsg,
     });
   }
 };
@@ -671,33 +764,59 @@ const handleRegister = async (req: express.Request, res: express.Response) => {
 app.post('/api/auth/register', handleRegister);
 app.post('/auth/register', handleRegister);
 
-const handleVerifyEmail = async (req: any, res: any) => {
-  const token = (req.query.token || req.query.verifyToken || req.body?.token) as string;
+// 2. Verify Email Token
+export const handleVerifyEmail = async (req: Request, res: Response) => {
+  try {
+    const token = (req.query.token || req.query.verifyToken || req.body?.token) as string;
 
-  if (!token) {
-    return res.status(400).json({ success: false, error: 'Verification token is required.', message: 'Verification token is required.' });
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        code: 'TOKEN_REQUIRED',
+        error: 'Verification token is required.',
+        message: 'Verification token is required.',
+      });
+    }
+
+    const user = await findUserByVerificationToken(token);
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_TOKEN',
+        error: 'This verification link is invalid or has already been used.',
+        message: 'This verification link is invalid or has already been used.',
+      });
+    }
+
+    if (user.verificationTokenExpiry && user.verificationTokenExpiry < Date.now()) {
+      return res.status(400).json({
+        success: false,
+        code: 'TOKEN_EXPIRED',
+        error: 'This verification link has expired. Please request a new verification email.',
+        message: 'This verification link has expired. Please request a new verification email.',
+      });
+    }
+
+    user.emailVerified = true;
+    delete user.verificationToken;
+    delete user.verificationTokenExpiry;
+    await saveUser(user);
+
+    return res.json({
+      success: true,
+      message: 'Email verified successfully! You can now log in to HerShield.',
+      email: user.email,
+    });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Verification failed';
+    return res.status(500).json({
+      success: false,
+      code: 'SERVER_ERROR',
+      error: errorMsg,
+      message: errorMsg,
+    });
   }
-
-  const user = await findUserByVerificationToken(token);
-
-  if (!user) {
-    return res.status(400).json({ success: false, error: 'This verification link is invalid or has already been used.', message: 'This verification link is invalid or has already been used.' });
-  }
-
-  if (user.verificationTokenExpiry && user.verificationTokenExpiry < Date.now()) {
-    return res.status(400).json({ success: false, error: 'This verification link has expired. Please request a new verification email.', message: 'This verification link has expired. Please request a new verification email.' });
-  }
-
-  user.emailVerified = true;
-  delete user.verificationToken;
-  delete user.verificationTokenExpiry;
-  await saveUser(user);
-
-  res.json({
-    success: true,
-    message: 'Email verified successfully! You can now log in to HerShield.',
-    email: user.email,
-  });
 };
 
 app.get('/api/auth/verify-email', handleVerifyEmail);
@@ -705,22 +824,39 @@ app.get('/auth/verify-email', handleVerifyEmail);
 app.post('/api/auth/verify-email', handleVerifyEmail);
 app.post('/auth/verify-email', handleVerifyEmail);
 
-const handleResendVerification = async (req: any, res: any) => {
+// 3. Resend Verification Link
+export const handleResendVerification = async (req: Request, res: Response) => {
   try {
-    const { email } = req.body;
+    const { email } = req.body || {};
 
     if (!email) {
-      return res.status(400).json({ success: false, error: 'Email address is required.', message: 'Email address is required.' });
+      return res.status(400).json({
+        success: false,
+        code: 'EMAIL_REQUIRED',
+        error: 'Email address is required.',
+        message: 'Email address is required.',
+      });
     }
 
-    const user = await findUserByEmail(email);
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await findUserByEmail(normalizedEmail);
 
     if (!user) {
-      return res.status(400).json({ success: false, error: 'No account found with this email address.', message: 'No account found with this email address.' });
+      return res.status(400).json({
+        success: false,
+        code: 'USER_NOT_FOUND',
+        error: 'No account found with this email address.',
+        message: 'No account found with this email address.',
+      });
     }
 
     if (user.emailVerified) {
-      return res.status(400).json({ success: false, error: 'This email address is already verified. You can proceed to log in.', message: 'This email address is already verified. You can proceed to log in.' });
+      return res.status(400).json({
+        success: false,
+        code: 'ALREADY_VERIFIED',
+        error: 'This email address is already verified. You can proceed to log in.',
+        message: 'This email address is already verified. You can proceed to log in.',
+      });
     }
 
     const newToken = crypto.randomBytes(32).toString('hex');
@@ -728,8 +864,8 @@ const handleResendVerification = async (req: any, res: any) => {
     user.verificationTokenExpiry = Date.now() + 24 * 3600 * 1000;
     await saveUser(user);
 
-    const host = req.get('host');
-    const protocol = req.protocol;
+    const host = req.get('host') || 'localhost:3000';
+    const protocol = req.protocol || 'http';
     const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || `${protocol}://${host}`;
     const verifyUrl = `${baseUrl}?verifyToken=${newToken}`;
 
@@ -771,20 +907,27 @@ const handleResendVerification = async (req: any, res: any) => {
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Verification email sent successfully. Please check your inbox.',
       email: user.email,
     });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message || 'Unable to send verification email. Please try again.', message: err.message || 'Unable to send verification email. Please try again.' });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Unable to send verification email.';
+    return res.status(500).json({
+      success: false,
+      code: 'SERVER_ERROR',
+      error: errorMsg,
+      message: errorMsg,
+    });
   }
 };
 
 app.post('/api/auth/resend-verification', handleResendVerification);
 app.post('/auth/resend-verification', handleResendVerification);
 
-const handleTestEmail = async (req: any, res: any) => {
+// 4. Test Email Configuration
+export const handleTestEmail = async (req: Request, res: Response) => {
   try {
     const result = await verifyEmailTransport();
     const testRecipient = (req.query.sendTo || req.body?.to || req.query.to) as string;
@@ -807,11 +950,12 @@ const handleTestEmail = async (req: any, res: any) => {
     }
 
     return res.status(result.success ? 200 : 400).json(result);
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Email testing failed';
     return res.status(500).json({
       success: false,
       code: 'EMAIL_SERVICE_ERROR',
-      message: err.message || 'An unexpected error occurred while testing email configuration.',
+      message: errorMsg,
     });
   }
 };
@@ -821,130 +965,289 @@ app.get('/auth/test-email', handleTestEmail);
 app.post('/api/auth/test-email', handleTestEmail);
 app.post('/auth/test-email', handleTestEmail);
 
-const handleLogin = async (req: any, res: any) => {
-  const { email, password } = req.body;
+// 5. User Login
+export const handleLogin = async (req: Request, res: Response) => {
+  try {
+    const { email, password } = req.body || {};
 
-  if (!email || !password) {
-    return res.status(400).json({ success: false, error: 'Email address and password are required.', message: 'Email address and password are required.' });
-  }
-
-  const user = await findUserByEmail(email);
-
-  if (!user) {
-    return res.status(401).json({ success: false, error: 'Invalid email or password.', message: 'Invalid email or password.' });
-  }
-
-  const isValidPassword = bcrypt.compareSync(password, user.passwordHash);
-  if (!isValidPassword) {
-    return res.status(401).json({ success: false, error: 'Invalid email or password.', message: 'Invalid email or password.' });
-  }
-
-  if (!user.emailVerified) {
-    // Generate fresh verification token if needed
-    if (!user.verificationToken) {
-      user.verificationToken = crypto.randomBytes(32).toString('hex');
-      user.verificationTokenExpiry = Date.now() + 24 * 3600 * 1000;
-      await saveUser(user);
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        code: 'VALIDATION_ERROR',
+        error: 'Email address and password are required.',
+        message: 'Email address and password are required.',
+      });
     }
 
-    return res.status(403).json({
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await findUserByEmail(normalizedEmail);
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        code: 'INVALID_CREDENTIALS',
+        error: 'Invalid email or password.',
+        message: 'Invalid email or password.',
+      });
+    }
+
+    const isValidPassword = await bcrypt.compare(password, user.passwordHash);
+    if (!isValidPassword) {
+      return res.status(401).json({
+        success: false,
+        code: 'INVALID_CREDENTIALS',
+        error: 'Invalid email or password.',
+        message: 'Invalid email or password.',
+      });
+    }
+
+    if (!user.emailVerified) {
+      // Ensure user has valid verification token
+      if (!user.verificationToken) {
+        user.verificationToken = crypto.randomBytes(32).toString('hex');
+        user.verificationTokenExpiry = Date.now() + 24 * 3600 * 1000;
+        await saveUser(user);
+      }
+
+      return res.status(403).json({
+        success: false,
+        code: 'EMAIL_NOT_VERIFIED',
+        error: 'Please verify your email address before logging in.',
+        message: 'Please verify your email address before logging in.',
+        unverified: true,
+        email: user.email,
+      });
+    }
+
+    const token = jwt.sign({ id: user.id, email: user.email, name: user.name }, getJwtSecret(), { expiresIn: '7d' });
+    const { passwordHash: _, verificationToken: __, resetToken: ___, ...userWithoutSecrets } = user;
+
+    return res.json({
+      success: true,
+      token,
+      user: userWithoutSecrets,
+    });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Login failed';
+    return res.status(500).json({
       success: false,
-      code: 'EMAIL_NOT_VERIFIED',
-      error: 'Please verify your email address before logging in.',
-      message: 'Please verify your email address before logging in.',
-      unverified: true,
-      email: user.email,
+      code: 'SERVER_ERROR',
+      error: errorMsg,
+      message: errorMsg,
     });
   }
-
-  const token = jwt.sign({ id: user.id, email: user.email, name: user.name }, JWT_SECRET, { expiresIn: '7d' });
-  const { passwordHash: _, verificationToken: __, resetToken: ___, ...userWithoutSecrets } = user;
-
-  res.json({ success: true, token, user: userWithoutSecrets });
 };
 
 app.post('/api/auth/login', handleLogin);
 app.post('/auth/login', handleLogin);
 
-const handleGetMe = async (req: any, res: any) => {
-  const user = await findUserById(req.user.id);
-  if (!user) {
-    return res.status(404).json({ success: false, error: 'User account not found.', message: 'User account not found.' });
+// 6. Get Current User Profile
+export const handleGetMe = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({
+        success: false,
+        code: 'UNAUTHORIZED',
+        error: 'Unauthorized',
+        message: 'Unauthorized',
+      });
+    }
+
+    const user = await findUserById(req.user.id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        code: 'USER_NOT_FOUND',
+        error: 'User account not found.',
+        message: 'User account not found.',
+      });
+    }
+
+    const { passwordHash: _, verificationToken: __, resetToken: ___, ...userWithoutSecrets } = user;
+    return res.json({
+      success: true,
+      user: userWithoutSecrets,
+    });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Failed to fetch user profile';
+    return res.status(500).json({
+      success: false,
+      code: 'SERVER_ERROR',
+      error: errorMsg,
+      message: errorMsg,
+    });
   }
-  const { passwordHash: _, verificationToken: __, resetToken: ___, ...userWithoutSecrets } = user;
-  res.json({ success: true, user: userWithoutSecrets });
 };
 
 app.get('/api/auth/me', authenticateToken, handleGetMe);
 app.get('/auth/me', authenticateToken, handleGetMe);
 
-const handleForgotPassword = async (req: any, res: any) => {
-  const { email } = req.body;
-  if (!email) return res.status(400).json({ success: false, error: 'Email address is required.', message: 'Email address is required.' });
+// 7. Update User Profile & Settings
+export const handleUpdateProfile = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({
+        success: false,
+        code: 'UNAUTHORIZED',
+        error: 'Unauthorized',
+        message: 'Unauthorized',
+      });
+    }
 
-  const user = await findUserByEmail(email);
-  if (!user) {
-    return res.json({ success: true, message: 'If an account exists, password reset instructions have been sent.' });
+    const user = await findUserById(req.user.id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        code: 'USER_NOT_FOUND',
+        error: 'User account not found.',
+        message: 'User account not found.',
+      });
+    }
+
+    const { name, profileImage, settings } = req.body || {};
+    if (name && typeof name === 'string') user.name = name.trim();
+    if (profileImage !== undefined) user.profileImage = profileImage;
+    if (settings && typeof settings === 'object') {
+      user.settings = { ...(user.settings || {}), ...settings };
+    }
+
+    await saveUser(user);
+    const { passwordHash: _, verificationToken: __, resetToken: ___, ...userWithoutSecrets } = user;
+    return res.json({ success: true, user: userWithoutSecrets });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Unable to update profile.';
+    return res.status(500).json({
+      success: false,
+      code: 'SERVER_ERROR',
+      error: errorMsg,
+      message: errorMsg,
+    });
   }
+};
 
-  const resetToken = crypto.randomBytes(32).toString('hex');
-  user.resetToken = resetToken;
-  user.resetTokenExpiry = Date.now() + 3600 * 1000; // 1 hour
-  await saveUser(user);
+app.put('/api/auth/profile', authenticateToken, handleUpdateProfile);
+app.put('/auth/profile', authenticateToken, handleUpdateProfile);
+app.put('/api/auth/me', authenticateToken, handleUpdateProfile);
+app.put('/auth/me', authenticateToken, handleUpdateProfile);
+app.patch('/api/auth/me', authenticateToken, handleUpdateProfile);
+app.patch('/auth/me', authenticateToken, handleUpdateProfile);
 
-  const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
-  const resetUrl = `${baseUrl}?resetToken=${resetToken}`;
+// 8. Forgot Password
+export const handleForgotPassword = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body || {};
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        code: 'EMAIL_REQUIRED',
+        error: 'Email address is required.',
+        message: 'Email address is required.',
+      });
+    }
 
-  const emailResult = await sendEmail({
-    to: user.email,
-    subject: 'HerShield — Password Reset Request',
-    html: `<p>Click here to reset your HerShield password: <a href="${resetUrl}">${resetUrl}</a></p>`,
-    text: `Reset your HerShield password: ${resetUrl}`,
-  });
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await findUserByEmail(normalizedEmail);
+    if (!user) {
+      return res.json({
+        success: true,
+        message: 'If an account exists, password reset instructions have been sent.',
+      });
+    }
 
-  res.json({
-    success: true,
-    message: emailResult.simulated
-      ? 'Password reset link generated! You can reset your password using the link or token below.'
-      : 'Password reset instructions sent to your email address.',
-    resetToken,
-    resetUrl,
-  });
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    user.resetToken = resetToken;
+    user.resetTokenExpiry = Date.now() + 3600 * 1000; // 1 hour
+    await saveUser(user);
+
+    const host = req.get('host') || 'localhost:3000';
+    const protocol = req.protocol || 'http';
+    const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || `${protocol}://${host}`;
+    const resetUrl = `${baseUrl}?resetToken=${resetToken}`;
+
+    await sendEmail({
+      to: user.email,
+      subject: 'HerShield — Password Reset Request',
+      html: `<p>Click here to reset your HerShield password: <a href="${resetUrl}">${resetUrl}</a></p>`,
+      text: `Reset your HerShield password: ${resetUrl}`,
+    });
+
+    return res.json({
+      success: true,
+      message: 'Password reset instructions sent to your email address.',
+    });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Failed to process request';
+    return res.status(500).json({
+      success: false,
+      code: 'SERVER_ERROR',
+      error: errorMsg,
+      message: errorMsg,
+    });
+  }
 };
 
 app.post('/api/auth/forgot-password', handleForgotPassword);
 app.post('/auth/forgot-password', handleForgotPassword);
 
-const handleResetPassword = async (req: any, res: any) => {
-  const { token, newPassword } = req.body;
+// 9. Reset Password
+export const handleResetPassword = async (req: Request, res: Response) => {
+  try {
+    const { token, newPassword } = req.body || {};
 
-  if (!token || !newPassword) {
-    return res.status(400).json({ success: false, error: 'Reset token and new password are required.', message: 'Reset token and new password are required.' });
+    if (!token || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        code: 'VALIDATION_ERROR',
+        error: 'Reset token and new password are required.',
+        message: 'Reset token and new password are required.',
+      });
+    }
+
+    const user = await findUserByResetToken(token);
+    if (!user || (user.resetTokenExpiry && user.resetTokenExpiry < Date.now())) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_RESET_TOKEN',
+        error: 'Password reset link is invalid or has expired.',
+        message: 'Password reset link is invalid or has expired.',
+      });
+    }
+
+    if (typeof newPassword !== 'string' || newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        code: 'PASSWORD_TOO_SHORT',
+        error: 'Password must be at least 6 characters long.',
+        message: 'Password must be at least 6 characters long.',
+      });
+    }
+
+    user.passwordHash = await bcrypt.hash(newPassword, 10);
+    delete user.resetToken;
+    delete user.resetTokenExpiry;
+    await saveUser(user);
+
+    return res.json({
+      success: true,
+      message: 'Password updated successfully. You can now log in.',
+    });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Password reset failed';
+    return res.status(500).json({
+      success: false,
+      code: 'SERVER_ERROR',
+      error: errorMsg,
+      message: errorMsg,
+    });
   }
-
-  const user = await findUserByResetToken(token);
-  if (!user || (user.resetTokenExpiry && user.resetTokenExpiry < Date.now())) {
-    return res.status(400).json({ success: false, error: 'Password reset link is invalid or has expired.', message: 'Password reset link is invalid or has expired.' });
-  }
-
-  if (newPassword.length < 6) {
-    return res.status(400).json({ success: false, error: 'Password must be at least 6 characters long.', message: 'Password must be at least 6 characters long.' });
-  }
-
-  user.passwordHash = bcrypt.hashSync(newPassword, 10);
-  delete user.resetToken;
-  delete user.resetTokenExpiry;
-  await saveUser(user);
-
-  res.json({ success: true, message: 'Password updated successfully. You can now log in.' });
 };
 
 app.post('/api/auth/reset-password', handleResetPassword);
 app.post('/auth/reset-password', handleResetPassword);
 
-// --- REAL ROUTING API ---
+// --- REAL ROUTING API & GEOCODING ---
 async function geocodeLocation(query: string): Promise<{ address: string; lat: number; lng: number }> {
-  // If coordinates were entered directly as numbers or comma-separated string (e.g. "28.6139, 77.2090")
+  // Check if string is direct coordinates (e.g. "28.6139, 77.2090")
   const coordMatch = query.match(/^([-+]?[0-9]*\.?[0-9]+)[,\s]+([-+]?[0-9]*\.?[0-9]+)$/);
   if (coordMatch) {
     const lat = parseFloat(coordMatch[1]);
@@ -963,7 +1266,7 @@ async function geocodeLocation(query: string): Promise<{ address: string; lat: n
     try {
       const gUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${mapsKey}`;
       const res = await fetch(gUrl);
-      const data = await res.json();
+      const data = (await res.json()) as { status: string; results: Array<{ formatted_address: string; geometry: { location: { lat: number; lng: number } } }> };
       if (data.status === 'OK' && data.results && data.results[0]) {
         const first = data.results[0];
         return {
@@ -981,11 +1284,11 @@ async function geocodeLocation(query: string): Promise<{ address: string; lat: n
   try {
     const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`;
     const res = await fetch(nomUrl, {
-      headers: { 'User-Agent': 'HerShieldApp/1.0' },
+      headers: { 'User-Agent': 'HerShieldSafetyApp/1.0' },
     });
 
     if (res.ok) {
-      const data = await res.json();
+      const data = (await res.json()) as Array<{ display_name: string; lat: string; lon: string }>;
       if (Array.isArray(data) && data.length > 0) {
         const item = data[0];
         return {
@@ -995,17 +1298,61 @@ async function geocodeLocation(query: string): Promise<{ address: string; lat: n
         };
       }
     }
-  } catch (err: any) {
-    console.warn('Nominatim geocoding error:', err.message);
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    console.warn('Nominatim geocoding error:', errorMsg);
   }
 
   throw new Error(`Location "${query}" could not be found. Please check spelling.`);
 }
 
+function generateSafetyMarkersForPath(pathCoords: Array<{ lat: number; lng: number }>): SafetyMarker[] {
+  if (!pathCoords || pathCoords.length < 2) return [];
+  const markers: SafetyMarker[] = [];
+  const midIndex = Math.floor(pathCoords.length / 2);
+  const quarterIndex = Math.floor(pathCoords.length / 4);
+  const threeQuarterIndex = Math.floor((pathCoords.length * 3) / 4);
+
+  if (pathCoords[quarterIndex]) {
+    markers.push({
+      id: `sm_${Date.now()}_1`,
+      type: 'police',
+      title: 'Police Assistance Booth',
+      description: '24/7 manned security & quick response unit',
+      lat: pathCoords[quarterIndex].lat,
+      lng: pathCoords[quarterIndex].lng,
+    });
+  }
+
+  if (pathCoords[midIndex]) {
+    markers.push({
+      id: `sm_${Date.now()}_2`,
+      type: 'lighting',
+      title: 'High-Lumen Smart LED Lighting',
+      description: 'Continuous well-lit sidewalk corridor',
+      lat: pathCoords[midIndex].lat,
+      lng: pathCoords[midIndex].lng,
+    });
+  }
+
+  if (pathCoords[threeQuarterIndex]) {
+    markers.push({
+      id: `sm_${Date.now()}_3`,
+      type: 'transit',
+      title: 'Guarded Transit Interchange',
+      description: 'Well-frequented public transport node',
+      lat: pathCoords[threeQuarterIndex].lat,
+      lng: pathCoords[threeQuarterIndex].lng,
+    });
+  }
+
+  return markers;
+}
+
 async function calculateRealRoutes(
   start: { address: string; lat: number; lng: number },
   destination: { address: string; lat: number; lng: number }
-) {
+): Promise<RouteOption[]> {
   const mapsKey = process.env.MAPS_API_KEY || process.env.GOOGLE_MAPS_PLATFORM_KEY;
 
   if (mapsKey) {
@@ -1025,15 +1372,23 @@ async function calculateRealRoutes(
           computeAlternativeRoutes: true,
         }),
       });
-      const gData = await gRes.json();
+      const gData = (await gRes.json()) as {
+        routes?: Array<{
+          distanceMeters?: number;
+          duration?: string;
+          polyline?: { geoJsonLinestring?: { coordinates?: Array<[number, number]> } };
+        }>;
+      };
+
       if (gData.routes && gData.routes.length > 0) {
-        return gData.routes.map((r: any, idx: number) => {
+        return gData.routes.map((r, idx) => {
           const distKm = parseFloat(((r.distanceMeters || 0) / 1000).toFixed(1));
           const durMin = Math.max(1, Math.round(parseInt(r.duration || '0s', 10) / 60));
-          const coords = r.polyline?.geoJsonLinestring?.coordinates?.map((c: [number, number]) => ({
-            lat: c[1],
-            lng: c[0],
-          })) || [start, destination];
+          const coords =
+            r.polyline?.geoJsonLinestring?.coordinates?.map((c: [number, number]) => ({
+              lat: c[1],
+              lng: c[0],
+            })) || [start, destination];
 
           const safetyScore = Math.min(96, Math.max(65, 92 - idx * 8));
           return {
@@ -1044,7 +1399,7 @@ async function calculateRealRoutes(
             durationMin: durMin,
             safetyScore,
             safetyStatus: safetyScore >= 80 ? 'Higher available safety information' : 'Moderate available safety information',
-            safetyBadgeColor: safetyScore >= 80 ? 'green' : 'amber',
+            safetyBadgeColor: (safetyScore >= 80 ? 'green' : 'amber') as 'green' | 'amber',
             publicFacilitiesCount: Math.round(distKm * 3) + 2,
             mainRoadPercentage: idx === 0 ? 94 : idx === 1 ? 75 : 98,
             lightingRating: safetyScore >= 80 ? 'Excellent' : 'Moderate',
@@ -1055,26 +1410,34 @@ async function calculateRealRoutes(
         });
       }
     } catch (e) {
-      console.warn('Google Routes API compute failure:', e);
+      console.warn('Google Routes API failure, using OSRM fallback:', e);
     }
   }
 
   // OSRM Real Routing Engine
   const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${destination.lng},${destination.lat}?overview=full&geometries=geojson&steps=true&alternatives=true`;
   const osrmRes = await fetch(osrmUrl, {
-    headers: { 'User-Agent': 'HerShieldApp/1.0' },
+    headers: { 'User-Agent': 'HerShieldSafetyApp/1.0' },
   });
 
   if (!osrmRes.ok) {
     throw new Error('Unable to calculate the route. Please check the locations and try again.');
   }
 
-  const osrmData = await osrmRes.json();
+  const osrmData = (await osrmRes.json()) as {
+    code: string;
+    routes?: Array<{
+      distance: number;
+      duration: number;
+      geometry?: { coordinates?: Array<[number, number]> };
+    }>;
+  };
+
   if (osrmData.code !== 'Ok' || !osrmData.routes || osrmData.routes.length === 0) {
     throw new Error('Unable to calculate route for the specified locations.');
   }
 
-  return osrmData.routes.map((route: any, idx: number) => {
+  return osrmData.routes.map((route, idx) => {
     const distKm = parseFloat((route.distance / 1000).toFixed(1));
     const durMin = Math.max(1, Math.round(route.duration / 60));
     const rawCoords = route.geometry?.coordinates || [];
@@ -1096,7 +1459,7 @@ async function calculateRealRoutes(
       durationMin: durMin,
       safetyScore,
       safetyStatus: safetyScore >= 80 ? 'Higher available safety information' : 'Moderate available safety information',
-      safetyBadgeColor: safetyScore >= 80 ? 'green' : 'amber',
+      safetyBadgeColor: (safetyScore >= 80 ? 'green' : 'amber') as 'green' | 'amber',
       publicFacilitiesCount: Math.round(distKm * 2.5) + 3,
       mainRoadPercentage: idx === 0 ? 92 : idx === 1 ? 78 : 96,
       lightingRating: safetyScore >= 80 ? 'Excellent' : 'Moderate',
@@ -1107,196 +1470,267 @@ async function calculateRealRoutes(
   });
 }
 
-function generateSafetyMarkersForPath(path: Array<{ lat: number; lng: number }>) {
-  if (!path || path.length < 2) return [];
-  const markers = [];
-  const midIndex = Math.floor(path.length / 2);
-  const quarterIndex = Math.floor(path.length / 4);
-  const threeQuarterIndex = Math.floor((path.length * 3) / 4);
-
-  if (path[quarterIndex]) {
-    markers.push({
-      id: `sm_${Date.now()}_1`,
-      type: 'police',
-      title: 'Police Assistance Booth',
-      description: '24/7 manned security & quick response unit',
-      lat: path[quarterIndex].lat,
-      lng: path[quarterIndex].lng,
-    });
-  }
-
-  if (path[midIndex]) {
-    markers.push({
-      id: `sm_${Date.now()}_2`,
-      type: 'lighting',
-      title: 'High-Lumen Smart LED Lighting',
-      description: 'Continuous well-lit sidewalk corridor',
-      lat: path[midIndex].lat,
-      lng: path[midIndex].lng,
-    });
-  }
-
-  if (path[threeQuarterIndex]) {
-    markers.push({
-      id: `sm_${Date.now()}_3`,
-      type: 'transit',
-      title: 'Guarded Transit Interchange',
-      description: 'Well-frequented public transport node',
-      lat: path[threeQuarterIndex].lat,
-      lng: path[threeQuarterIndex].lng,
-    });
-  }
-
-  return markers;
-}
-
-const handleCalculateRoutes = async (req: express.Request, res: express.Response) => {
+export const handleCalculateRoutes = async (req: Request, res: Response) => {
   try {
     const rawStart = req.body.start || req.body.startLocation || req.body.origin || req.body.from;
     const rawDest = req.body.destination || req.body.dest || req.body.to || req.body.target;
 
     if (!rawStart || !rawDest) {
-      return res.status(400).json({ error: 'Please enter both starting location and destination.' });
+      return res.status(400).json({
+        success: false,
+        code: 'VALIDATION_ERROR',
+        error: 'Please enter both starting location and destination.',
+        message: 'Please enter both starting location and destination.',
+      });
     }
 
-    let startCoords = typeof rawStart === 'object' && rawStart.lat && rawStart.lng ? rawStart : null;
-    if (!startCoords && typeof rawStart === 'string' && rawStart.trim()) {
+    let startCoords: { address: string; lat: number; lng: number } | null = null;
+    if (typeof rawStart === 'object' && rawStart.lat && rawStart.lng) {
+      startCoords = {
+        address: rawStart.address || `${rawStart.lat.toFixed(5)}, ${rawStart.lng.toFixed(5)}`,
+        lat: Number(rawStart.lat),
+        lng: Number(rawStart.lng),
+      };
+    } else if (typeof rawStart === 'string' && rawStart.trim()) {
       startCoords = await geocodeLocation(rawStart.trim());
     }
 
-    let destCoords = typeof rawDest === 'object' && rawDest.lat && rawDest.lng ? rawDest : null;
-    if (!destCoords && typeof rawDest === 'string' && rawDest.trim()) {
+    let destCoords: { address: string; lat: number; lng: number } | null = null;
+    if (typeof rawDest === 'object' && rawDest.lat && rawDest.lng) {
+      destCoords = {
+        address: rawDest.address || `${rawDest.lat.toFixed(5)}, ${rawDest.lng.toFixed(5)}`,
+        lat: Number(rawDest.lat),
+        lng: Number(rawDest.lng),
+      };
+    } else if (typeof rawDest === 'string' && rawDest.trim()) {
       destCoords = await geocodeLocation(rawDest.trim());
     }
 
     if (!startCoords || !destCoords) {
-      return res.status(400).json({ error: 'Unable to calculate the route. Please check the locations and try again.' });
+      return res.status(400).json({
+        success: false,
+        code: 'GEOCODING_FAILED',
+        error: 'Unable to resolve the provided locations.',
+        message: 'Unable to resolve the provided locations.',
+      });
     }
 
     const computedRoutes = await calculateRealRoutes(startCoords, destCoords);
 
-    res.json({
+    return res.json({
+      success: true,
       startLocation: startCoords,
       destination: destCoords,
       routes: computedRoutes,
     });
-  } catch (err: any) {
-    console.error('Route calculation error:', err.message);
-    res.status(400).json({ error: err.message || 'Unable to calculate the route. Please check the locations and try again.' });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Unable to calculate the route.';
+    console.error('Route calculation error:', errorMsg);
+    return res.status(400).json({
+      success: false,
+      code: 'ROUTE_CALCULATION_ERROR',
+      error: errorMsg,
+      message: errorMsg,
+    });
   }
 };
 
 app.post('/api/routes/calculate', handleCalculateRoutes);
 app.post('/routes/calculate', handleCalculateRoutes);
 
-// --- UPDATE USER PROFILE & SETTINGS ---
-const handleUpdateProfile = async (req: any, res: any) => {
+// --- TRUSTED CONTACTS API ---
+export const handleGetContacts = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user.id;
-    const user = await findUserById(userId);
-    if (!user) {
-      return res.status(404).json({ success: false, error: 'User account not found.' });
+    if (!req.user?.id) {
+      return res.status(401).json({
+        success: false,
+        code: 'UNAUTHORIZED',
+        error: 'Unauthorized',
+        message: 'Unauthorized',
+      });
     }
 
-    const { name, profileImage, settings } = req.body || {};
-    if (name) user.name = name.trim();
-    if (profileImage !== undefined) user.profileImage = profileImage;
-    if (settings) user.settings = { ...(user.settings || {}), ...settings };
-
-    await saveUser(user);
-    const { passwordHash: _, verificationToken: __, resetToken: ___, ...userWithoutSecrets } = user;
-    res.json({ success: true, user: userWithoutSecrets });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message || 'Unable to update profile.' });
+    const list = await getUserContacts(req.user.id);
+    return res.json(list);
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Failed to fetch contacts';
+    return res.status(500).json({
+      success: false,
+      code: 'SERVER_ERROR',
+      error: errorMsg,
+      message: errorMsg,
+    });
   }
-};
-
-app.put('/api/auth/profile', authenticateToken, handleUpdateProfile);
-app.put('/auth/profile', authenticateToken, handleUpdateProfile);
-app.put('/api/auth/me', authenticateToken, handleUpdateProfile);
-app.put('/auth/me', authenticateToken, handleUpdateProfile);
-app.patch('/api/auth/me', authenticateToken, handleUpdateProfile);
-app.patch('/auth/me', authenticateToken, handleUpdateProfile);
-
-// --- TRUSTED CONTACTS API ---
-const handleGetContacts = async (req: any, res: any) => {
-  const userId = req.user.id;
-  const list = await getUserContacts(userId);
-  res.json(list);
 };
 
 app.get('/api/contacts', authenticateToken, handleGetContacts);
 app.get('/contacts', authenticateToken, handleGetContacts);
 
-const handleAddContact = async (req: any, res: any) => {
-  const userId = req.user.id;
-  const { name, contact, relationship, sharingPreference } = req.body;
+export const handleAddContact = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({
+        success: false,
+        code: 'UNAUTHORIZED',
+        error: 'Unauthorized',
+        message: 'Unauthorized',
+      });
+    }
 
-  if (!name || !contact) {
-    return res.status(400).json({ error: 'Contact name and information are required.' });
+    const { name, contact, relationship, sharingPreference } = req.body || {};
+
+    if (!name || !contact) {
+      return res.status(400).json({
+        success: false,
+        code: 'VALIDATION_ERROR',
+        error: 'Contact name and information are required.',
+        message: 'Contact name and information are required.',
+      });
+    }
+
+    const newContact: TrustedContactRecord = {
+      id: `tc_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+      userId: req.user.id,
+      name: name.trim(),
+      contact: contact.trim(),
+      relationship: relationship || 'Friend',
+      verificationStatus: 'Verified',
+      sharingPreference: sharingPreference || 'Live Location',
+      createdAt: new Date().toISOString(),
+    };
+
+    await addContact(newContact);
+    return res.status(201).json(newContact);
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Failed to add contact';
+    return res.status(500).json({
+      success: false,
+      code: 'SERVER_ERROR',
+      error: errorMsg,
+      message: errorMsg,
+    });
   }
-
-  const newContact: TrustedContactRecord = {
-    id: `tc_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
-    userId,
-    name: name.trim(),
-    contact: contact.trim(),
-    relationship: relationship || 'Friend',
-    verificationStatus: 'Verified',
-    sharingPreference: sharingPreference || 'Live Location',
-    createdAt: new Date().toISOString(),
-  };
-
-  await addContact(newContact);
-  res.status(201).json(newContact);
 };
 
 app.post('/api/contacts', authenticateToken, handleAddContact);
 app.post('/contacts', authenticateToken, handleAddContact);
 
-const handleUpdateContact = async (req: any, res: any) => {
-  const userId = req.user.id;
-  const { id } = req.params;
-  const updated = await updateContact(userId, id, req.body);
+export const handleUpdateContact = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({
+        success: false,
+        code: 'UNAUTHORIZED',
+        error: 'Unauthorized',
+        message: 'Unauthorized',
+      });
+    }
 
-  if (!updated) {
-    return res.status(404).json({ error: 'Trusted contact not found.' });
+    const { id } = req.params;
+    const updated = await updateContact(req.user.id, id, req.body);
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        code: 'NOT_FOUND',
+        error: 'Trusted contact not found.',
+        message: 'Trusted contact not found.',
+      });
+    }
+
+    return res.json(updated);
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Failed to update contact';
+    return res.status(500).json({
+      success: false,
+      code: 'SERVER_ERROR',
+      error: errorMsg,
+      message: errorMsg,
+    });
   }
-
-  res.json(updated);
 };
 
 app.put('/api/contacts/:id', authenticateToken, handleUpdateContact);
 app.put('/contacts/:id', authenticateToken, handleUpdateContact);
 
-const handleDeleteContact = async (req: any, res: any) => {
-  const userId = req.user.id;
-  const { id } = req.params;
-  await deleteContact(userId, id);
-  res.json({ success: true, id });
+export const handleDeleteContact = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({
+        success: false,
+        code: 'UNAUTHORIZED',
+        error: 'Unauthorized',
+        message: 'Unauthorized',
+      });
+    }
+
+    const { id } = req.params;
+    await deleteContact(req.user.id, id);
+    return res.json({ success: true, id });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Failed to delete contact';
+    return res.status(500).json({
+      success: false,
+      code: 'SERVER_ERROR',
+      error: errorMsg,
+      message: errorMsg,
+    });
+  }
 };
 
 app.delete('/api/contacts/:id', authenticateToken, handleDeleteContact);
 app.delete('/contacts/:id', authenticateToken, handleDeleteContact);
 
 // --- JOURNEYS API ---
-const handleGetJourneys = async (req: any, res: any) => {
-  const userId = req.user.id;
-  const userJourneys = await getUserJourneys(userId);
-  res.json(userJourneys);
+export const handleGetJourneys = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({
+        success: false,
+        code: 'UNAUTHORIZED',
+        error: 'Unauthorized',
+        message: 'Unauthorized',
+      });
+    }
+
+    const userJourneys = await getUserJourneys(req.user.id);
+    return res.json(userJourneys);
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Failed to fetch journeys';
+    return res.status(500).json({
+      success: false,
+      code: 'SERVER_ERROR',
+      error: errorMsg,
+      message: errorMsg,
+    });
+  }
 };
 
 app.get('/api/journeys', authenticateToken, handleGetJourneys);
 app.get('/journeys', authenticateToken, handleGetJourneys);
 
-const handleCreateJourney = async (req: any, res: any) => {
+export const handleCreateJourney = async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.user?.id) {
+      return res.status(401).json({
+        success: false,
+        code: 'UNAUTHORIZED',
+        error: 'Unauthorized',
+        message: 'Unauthorized',
+      });
+    }
+
     const userId = req.user.id;
     const user = await findUserById(userId);
-    const { startLocation, destination, selectedRoute, trustedContacts: contactsList, sharingPreference } = req.body;
+    const { startLocation, destination, selectedRoute, trustedContacts: contactsList, sharingPreference } = req.body || {};
 
     if (!startLocation || !destination || !selectedRoute) {
-      return res.status(400).json({ error: 'Start location, destination, and selected route are required to start a journey.' });
+      return res.status(400).json({
+        success: false,
+        code: 'VALIDATION_ERROR',
+        error: 'Start location, destination, and selected route are required to start a journey.',
+        message: 'Start location, destination, and selected route are required to start a journey.',
+      });
     }
 
     const id = `jrn_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
@@ -1333,17 +1767,25 @@ const handleCreateJourney = async (req: any, res: any) => {
     };
 
     await saveJourney(newJourney);
-    io.to(`journey:${id}`).emit('journey_started', newJourney);
 
-    // Send REAL notifications to selected trusted contacts
-    const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+    // Safely emit to socket if running
+    try {
+      io.to(`journey:${id}`).emit('journey_started', newJourney);
+    } catch (e) {
+      console.warn('Socket emit error:', e);
+    }
+
+    // Send notifications to selected trusted contacts with email addresses
+    const host = req.get('host') || 'localhost:3000';
+    const protocol = req.protocol || 'http';
+    const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || `${protocol}://${host}`;
     const shareUrl = `${baseUrl}/share/${shareToken}`;
     const travelerName = user ? user.name : 'A HerShield User';
 
     if (Array.isArray(contactsList)) {
       for (const contact of contactsList) {
         if (contact.contact && contact.contact.includes('@')) {
-          await sendEmail({
+          sendEmail({
             to: contact.contact,
             subject: `HerShield — ${travelerName} has started a journey`,
             html: `
@@ -1368,205 +1810,390 @@ const handleCreateJourney = async (req: any, res: any) => {
       }
     }
 
-    res.status(201).json(newJourney);
-  } catch (err: any) {
-    res.status(500).json({ error: 'Unable to start journey. Please try again.' });
+    return res.status(201).json(newJourney);
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Unable to start journey.';
+    return res.status(500).json({
+      success: false,
+      code: 'SERVER_ERROR',
+      error: errorMsg,
+      message: errorMsg,
+    });
   }
 };
 
 app.post('/api/journeys', authenticateToken, handleCreateJourney);
 app.post('/journeys', authenticateToken, handleCreateJourney);
 
-const handleGetJourneyById = async (req: any, res: any) => {
-  const journey = await getJourneyById(req.params.id);
-  if (!journey || journey.userId !== req.user.id) {
-    return res.status(404).json({ error: 'Journey record not found.' });
+export const handleGetJourneyById = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({
+        success: false,
+        code: 'UNAUTHORIZED',
+        error: 'Unauthorized',
+        message: 'Unauthorized',
+      });
+    }
+
+    const journey = await getJourneyById(req.params.id);
+    if (!journey || journey.userId !== req.user.id) {
+      return res.status(404).json({
+        success: false,
+        code: 'NOT_FOUND',
+        error: 'Journey record not found.',
+        message: 'Journey record not found.',
+      });
+    }
+
+    return res.json(journey);
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Failed to fetch journey';
+    return res.status(500).json({
+      success: false,
+      code: 'SERVER_ERROR',
+      error: errorMsg,
+      message: errorMsg,
+    });
   }
-  res.json(journey);
 };
 
 app.get('/api/journeys/:id', authenticateToken, handleGetJourneyById);
 app.get('/journeys/:id', authenticateToken, handleGetJourneyById);
 
-const handleGetSharedJourney = async (req: any, res: any) => {
-  const journey = await getJourneyByShareToken(req.params.token);
+export const handleGetSharedJourney = async (req: Request, res: Response) => {
+  try {
+    const journey = await getJourneyByShareToken(req.params.token);
 
-  if (!journey) {
-    return res.status(404).json({ error: 'Journey link is invalid or has expired.' });
+    if (!journey) {
+      return res.status(404).json({
+        success: false,
+        code: 'NOT_FOUND',
+        error: 'Journey link is invalid or has expired.',
+        message: 'Journey link is invalid or has expired.',
+      });
+    }
+
+    if (journey.shareTokenExpiry && journey.shareTokenExpiry < Date.now()) {
+      return res.status(404).json({
+        success: false,
+        code: 'EXPIRED',
+        error: 'This journey share link has expired.',
+        message: 'This journey share link has expired.',
+      });
+    }
+
+    const user = await findUserById(journey.userId);
+    return res.json({
+      id: journey.id,
+      shareToken: journey.shareToken,
+      startLocation: journey.startLocation,
+      destination: journey.destination,
+      selectedRoute: journey.selectedRoute,
+      startTime: journey.startTime,
+      expectedArrival: journey.expectedArrival,
+      endTime: journey.endTime,
+      status: journey.status,
+      sharingPreference: journey.sharingPreference,
+      currentLocation: journey.currentLocation,
+      progressPercent: journey.progressPercent,
+      lastUpdateNote: journey.lastUpdateNote,
+      userName: user ? user.name : 'Trusted Contact User',
+    });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Failed to fetch shared journey';
+    return res.status(500).json({
+      success: false,
+      code: 'SERVER_ERROR',
+      error: errorMsg,
+      message: errorMsg,
+    });
   }
-
-  if (journey.shareTokenExpiry && journey.shareTokenExpiry < Date.now()) {
-    return res.status(404).json({ error: 'This journey share link has expired.' });
-  }
-
-  const user = await findUserById(journey.userId);
-  res.json({
-    id: journey.id,
-    shareToken: journey.shareToken,
-    startLocation: journey.startLocation,
-    destination: journey.destination,
-    selectedRoute: journey.selectedRoute,
-    startTime: journey.startTime,
-    expectedArrival: journey.expectedArrival,
-    endTime: journey.endTime,
-    status: journey.status,
-    sharingPreference: journey.sharingPreference,
-    currentLocation: journey.currentLocation,
-    progressPercent: journey.progressPercent,
-    lastUpdateNote: journey.lastUpdateNote,
-    userName: user ? user.name : 'Trusted Contact User',
-  });
 };
 
 app.get('/api/journeys/share/:token', handleGetSharedJourney);
 app.get('/journeys/share/:token', handleGetSharedJourney);
 
-const handleCompleteJourney = async (req: any, res: any) => {
-  const journey = await getJourneyById(req.params.id);
-  if (!journey || journey.userId !== req.user.id) {
-    return res.status(404).json({ error: 'Journey not found.' });
+export const handleCompleteJourney = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({
+        success: false,
+        code: 'UNAUTHORIZED',
+        error: 'Unauthorized',
+        message: 'Unauthorized',
+      });
+    }
+
+    const journey = await getJourneyById(req.params.id);
+    if (!journey || journey.userId !== req.user.id) {
+      return res.status(404).json({
+        success: false,
+        code: 'NOT_FOUND',
+        error: 'Journey not found.',
+        message: 'Journey not found.',
+      });
+    }
+
+    journey.status = 'completed';
+    journey.progressPercent = 100;
+    journey.endTime = new Date().toISOString();
+    journey.lastUpdateNote = "Completed — User confirmed I'm Safe";
+
+    await saveJourney(journey);
+
+    try {
+      io.to(`journey:${journey.id}`).emit('status_changed', {
+        journeyId: journey.id,
+        status: 'completed',
+        note: journey.lastUpdateNote,
+      });
+    } catch (e) {
+      console.warn('Socket status emit error:', e);
+    }
+
+    return res.json(journey);
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Failed to complete journey';
+    return res.status(500).json({
+      success: false,
+      code: 'SERVER_ERROR',
+      error: errorMsg,
+      message: errorMsg,
+    });
   }
-
-  journey.status = 'completed';
-  journey.progressPercent = 100;
-  journey.endTime = new Date().toISOString();
-  journey.lastUpdateNote = "Completed — User confirmed I'm Safe";
-
-  await saveJourney(journey);
-
-  io.to(`journey:${journey.id}`).emit('status_changed', {
-    journeyId: journey.id,
-    status: 'completed',
-    note: journey.lastUpdateNote,
-  });
-
-  res.json(journey);
 };
 
 app.post('/api/journeys/:id/complete', authenticateToken, handleCompleteJourney);
 app.post('/journeys/:id/complete', authenticateToken, handleCompleteJourney);
 
-const handleEndJourney = async (req: any, res: any) => {
-  const journey = await getJourneyById(req.params.id);
-  if (!journey || journey.userId !== req.user.id) {
-    return res.status(404).json({ error: 'Journey not found.' });
+export const handleEndJourney = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({
+        success: false,
+        code: 'UNAUTHORIZED',
+        error: 'Unauthorized',
+        message: 'Unauthorized',
+      });
+    }
+
+    const journey = await getJourneyById(req.params.id);
+    if (!journey || journey.userId !== req.user.id) {
+      return res.status(404).json({
+        success: false,
+        code: 'NOT_FOUND',
+        error: 'Journey not found.',
+        message: 'Journey not found.',
+      });
+    }
+
+    journey.status = 'cancelled';
+    journey.endTime = new Date().toISOString();
+    journey.lastUpdateNote = 'Journey ended by user';
+
+    await saveJourney(journey);
+
+    try {
+      io.to(`journey:${journey.id}`).emit('status_changed', {
+        journeyId: journey.id,
+        status: 'cancelled',
+        note: journey.lastUpdateNote,
+      });
+    } catch (e) {
+      console.warn('Socket cancel emit error:', e);
+    }
+
+    return res.json(journey);
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Failed to end journey';
+    return res.status(500).json({
+      success: false,
+      code: 'SERVER_ERROR',
+      error: errorMsg,
+      message: errorMsg,
+    });
   }
-
-  journey.status = 'cancelled';
-  journey.endTime = new Date().toISOString();
-  journey.lastUpdateNote = 'Journey ended by user';
-
-  await saveJourney(journey);
-
-  io.to(`journey:${journey.id}`).emit('status_changed', {
-    journeyId: journey.id,
-    status: 'cancelled',
-    note: journey.lastUpdateNote,
-  });
-
-  res.json(journey);
 };
 
 app.post('/api/journeys/:id/end', authenticateToken, handleEndJourney);
 app.post('/journeys/:id/end', authenticateToken, handleEndJourney);
 
-const handleUpdateLocation = async (req: any, res: any) => {
-  const journey = await getJourneyById(req.params.id);
-  if (!journey || journey.userId !== req.user.id) {
-    return res.status(404).json({ error: 'Journey not found.' });
+export const handleUpdateLocation = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({
+        success: false,
+        code: 'UNAUTHORIZED',
+        error: 'Unauthorized',
+        message: 'Unauthorized',
+      });
+    }
+
+    const journey = await getJourneyById(req.params.id);
+    if (!journey || journey.userId !== req.user.id) {
+      return res.status(404).json({
+        success: false,
+        code: 'NOT_FOUND',
+        error: 'Journey not found.',
+        message: 'Journey not found.',
+      });
+    }
+
+    const { lat, lng, speed, progressPercent } = req.body || {};
+    if (typeof lat !== 'number' || typeof lng !== 'number') {
+      return res.status(400).json({
+        success: false,
+        code: 'VALIDATION_ERROR',
+        error: 'Valid lat and lng numbers are required.',
+        message: 'Valid lat and lng numbers are required.',
+      });
+    }
+
+    journey.currentLocation = { lat, lng };
+    if (typeof progressPercent === 'number') {
+      journey.progressPercent = Math.min(100, Math.max(0, progressPercent));
+    }
+    journey.locationHistory.push({ lat, lng, speed, timestamp: new Date().toISOString() });
+
+    await saveJourney(journey);
+
+    try {
+      io.to(`journey:${journey.id}`).emit('location_updated', {
+        journeyId: journey.id,
+        currentLocation: { lat, lng },
+        progressPercent: journey.progressPercent,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.warn('Socket location update error:', e);
+    }
+
+    return res.json({ success: true, journey });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Failed to update location';
+    return res.status(500).json({
+      success: false,
+      code: 'SERVER_ERROR',
+      error: errorMsg,
+      message: errorMsg,
+    });
   }
-
-  const { lat, lng, speed, progressPercent } = req.body;
-  journey.currentLocation = { lat, lng };
-  if (typeof progressPercent === 'number') {
-    journey.progressPercent = Math.min(100, Math.max(0, progressPercent));
-  }
-  journey.locationHistory.push({ lat, lng, speed, timestamp: new Date().toISOString() });
-
-  await saveJourney(journey);
-
-  io.to(`journey:${journey.id}`).emit('location_updated', {
-    journeyId: journey.id,
-    currentLocation: { lat, lng },
-    progressPercent: journey.progressPercent,
-    timestamp: new Date().toISOString(),
-  });
-
-  res.json({ success: true, journey });
 };
 
 app.post('/api/journeys/:id/location', authenticateToken, handleUpdateLocation);
 app.post('/journeys/:id/location', authenticateToken, handleUpdateLocation);
 
-const handleDeleteJourney = async (req: any, res: any) => {
-  const journey = await getJourneyById(req.params.id);
-  if (!journey || journey.userId !== req.user.id) {
-    return res.status(404).json({ error: 'Journey not found.' });
+export const handleDeleteJourney = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({
+        success: false,
+        code: 'UNAUTHORIZED',
+        error: 'Unauthorized',
+        message: 'Unauthorized',
+      });
+    }
+
+    const journey = await getJourneyById(req.params.id);
+    if (!journey || journey.userId !== req.user.id) {
+      return res.status(404).json({
+        success: false,
+        code: 'NOT_FOUND',
+        error: 'Journey not found.',
+        message: 'Journey not found.',
+      });
+    }
+
+    await deleteJourney(req.params.id, req.user.id);
+    return res.json({ success: true, id: req.params.id });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Failed to delete journey';
+    return res.status(500).json({
+      success: false,
+      code: 'SERVER_ERROR',
+      error: errorMsg,
+      message: errorMsg,
+    });
   }
-  await deleteJourney(req.params.id, req.user.id);
-  res.json({ success: true, id: req.params.id });
 };
 
 app.delete('/api/journeys/:id', authenticateToken, handleDeleteJourney);
 app.delete('/journeys/:id', authenticateToken, handleDeleteJourney);
 
-// --- SOCKET.IO REALTIME ENGINE ---
+// --- SOCKET.IO REALTIME EVENTS ---
 io.on('connection', (socket) => {
   socket.on('join_journey', async (journeyIdOrToken: string) => {
-    let j = await getJourneyById(journeyIdOrToken);
-    if (!j) {
-      j = await getJourneyByShareToken(journeyIdOrToken);
-    }
-    if (j) {
-      const roomName = `journey:${j.id}`;
-      socket.join(roomName);
-      socket.emit('journey_state', j);
+    try {
+      let j = await getJourneyById(journeyIdOrToken);
+      if (!j) {
+        j = await getJourneyByShareToken(journeyIdOrToken);
+      }
+      if (j) {
+        const roomName = `journey:${j.id}`;
+        socket.join(roomName);
+        socket.emit('journey_state', j);
+      }
+    } catch (e) {
+      console.warn('Socket join error:', e);
     }
   });
 
   socket.on('update_location', async (data: { journeyId: string; lat: number; lng: number; progressPercent?: number }) => {
-    const { journeyId, lat, lng, progressPercent } = data;
-    const j = await getJourneyById(journeyId);
-    if (j && j.status === 'active') {
-      j.currentLocation = { lat, lng };
-      if (typeof progressPercent === 'number') {
-        j.progressPercent = Math.min(100, Math.max(0, progressPercent));
-      }
-      j.locationHistory.push({ lat, lng, timestamp: new Date().toISOString() });
-      await saveJourney(j);
+    try {
+      const { journeyId, lat, lng, progressPercent } = data;
+      const j = await getJourneyById(journeyId);
+      if (j && j.status === 'active') {
+        j.currentLocation = { lat, lng };
+        if (typeof progressPercent === 'number') {
+          j.progressPercent = Math.min(100, Math.max(0, progressPercent));
+        }
+        j.locationHistory.push({ lat, lng, timestamp: new Date().toISOString() });
+        await saveJourney(j);
 
-      io.to(`journey:${journeyId}`).emit('location_updated', {
-        journeyId,
-        currentLocation: { lat, lng },
-        progressPercent: j.progressPercent,
-        timestamp: new Date().toISOString(),
-      });
+        io.to(`journey:${journeyId}`).emit('location_updated', {
+          journeyId,
+          currentLocation: { lat, lng },
+          progressPercent: j.progressPercent,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } catch (e) {
+      console.warn('Socket location update error:', e);
     }
   });
 });
 
-// --- CATCH-ALL UNKNOWN API ENDPOINT HANDLER ---
-app.all('/api/*', (_req, res) => {
-  res.setHeader('Content-Type', 'application/json');
+// --- CATCH-ALL UNKNOWN API ENDPOINTS ---
+app.all('/api/*', (_req: Request, res: Response) => {
   res.status(404).json({
     success: false,
+    code: 'NOT_FOUND',
     error: 'API route not found',
     message: 'The requested API endpoint does not exist on HerShield server.',
   });
 });
 
 // --- GLOBAL EXPRESS ERROR HANDLER ---
-app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
   console.error('[UNHANDLED EXPRESS ERROR]:', err);
-  res.setHeader('Content-Type', 'application/json');
-  res.status(err.status || 500).json({
+
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  const status = typeof (err as { status?: number })?.status === 'number' ? (err as { status: number }).status : 500;
+  const message = err instanceof Error ? err.message : 'An internal server error occurred.';
+
+  return res.status(status).json({
     success: false,
-    error: err.message || 'Internal Server Error',
-    message: err.message || 'Internal Server Error',
+    code: 'INTERNAL_SERVER_ERROR',
+    message,
+    error: message,
   });
 });
 
-// --- VITE MIDDLEWARE & PROD STATIC SERVING ---
+// --- VITE MIDDLEWARE & STATIC ASSETS SERVING ---
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
@@ -1578,7 +2205,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
+    app.get('*', (_req: Request, res: Response) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
@@ -1594,6 +2221,7 @@ async function startServer() {
   });
 }
 
+// Only start the listening HTTP server if NOT running inside Vercel serverless functions
 if (!process.env.VERCEL) {
   startServer();
 }
