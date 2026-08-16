@@ -1983,11 +1983,13 @@ async function getRealSafetyMarkersForPath(
 
   const client = initGemini();
   if (client && start && destination) {
-    try {
-      console.log(`Querying Gemini to locate real safety markers: "${start.address}" -> "${destination.address}"`);
-      const response = await client.models.generateContent({
-        model: 'gemini-3.7-flash',
-        contents: `Act as an expert real-time geographical locator for a women safety platform called HerShield.
+    const modelsToTry = ['gemini-flash-latest', 'gemini-3.7-flash', 'gemini-3.1-flash-lite'];
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`Querying Gemini (${modelName}) to locate real safety markers: "${start.address}" -> "${destination.address}"`);
+        const response = await client.models.generateContent({
+          model: modelName,
+          contents: `Act as an expert real-time geographical locator for a women safety platform called HerShield.
 We are planning a walking/driving route in from starting point: "${start.address}" (${start.lat.toFixed(4)}, ${start.lng.toFixed(4)}) to destination point: "${destination.address}" (${destination.lat.toFixed(4)}, ${destination.lng.toFixed(4)}).
 
 Your task is to identify and return 8 to 15 REAL, GENUINE public safety landmarks, emergency nodes, transit hubs, and retail safe havens that actually exist physically along or very close to this route.
@@ -2008,63 +2010,66 @@ Array<{
   lat: number;
   lng: number;
 }>`,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                id: { type: Type.STRING },
-                type: { type: Type.STRING },
-                title: { type: Type.STRING },
-                description: { type: Type.STRING },
-                lat: { type: Type.NUMBER },
-                lng: { type: Type.NUMBER },
-              },
-              required: ['id', 'type', 'title', 'description', 'lat', 'lng'],
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.STRING },
+                  type: { type: Type.STRING },
+                  title: { type: Type.STRING },
+                  description: { type: Type.STRING },
+                  lat: { type: Type.NUMBER },
+                  lng: { type: Type.NUMBER },
+                },
+                required: ['id', 'type', 'title', 'description', 'lat', 'lng'],
+              }
             }
           }
-        }
-      });
+        });
 
-      const text = response.text;
-      if (text) {
-        const markers = JSON.parse(text) as SafetyMarker[];
-        if (markers && markers.length > 0) {
-          // Add 2 lighting zones procedurally to guarantee visual lighting indicators on the map
-          const midIndex = Math.floor(pathCoords.length / 2);
-          const quarterIndex = Math.floor(pathCoords.length / 4);
-          if (pathCoords[quarterIndex]) {
-            markers.push({
-              id: `osm_proc_light_1`,
-              type: 'lighting',
-              title: 'Verified Municipal LED Lighting',
-              description: 'Continuously illuminated pedestrian walkway corridor.',
-              lat: pathCoords[quarterIndex].lat,
-              lng: pathCoords[quarterIndex].lng,
-            });
+        const text = response.text;
+        if (text) {
+          const markers = JSON.parse(text) as SafetyMarker[];
+          if (markers && markers.length > 0) {
+            // Add 2 lighting zones procedurally to guarantee visual lighting indicators on the map
+            const midIndex = Math.floor(pathCoords.length / 2);
+            const quarterIndex = Math.floor(pathCoords.length / 4);
+            if (pathCoords[quarterIndex]) {
+              markers.push({
+                id: `osm_proc_light_1`,
+                type: 'lighting',
+                title: 'Verified Municipal LED Lighting',
+                description: 'Continuously illuminated pedestrian walkway corridor.',
+                lat: pathCoords[quarterIndex].lat,
+                lng: pathCoords[quarterIndex].lng,
+              });
+            }
+            if (pathCoords[midIndex]) {
+              markers.push({
+                id: `osm_proc_light_2`,
+                type: 'lighting',
+                title: 'High-Lumen Street Lighting',
+                description: 'Active public safety lighting zone.',
+                lat: pathCoords[midIndex].lat,
+                lng: pathCoords[midIndex].lng,
+              });
+            }
+            console.log(`Successfully fetched ${markers.length} real markers from Gemini using model ${modelName}!`);
+            return markers;
           }
-          if (pathCoords[midIndex]) {
-            markers.push({
-              id: `osm_proc_light_2`,
-              type: 'lighting',
-              title: 'High-Lumen Street Lighting',
-              description: 'Active public safety lighting zone.',
-              lat: pathCoords[midIndex].lat,
-              lng: pathCoords[midIndex].lng,
-            });
-          }
-          console.log(`Successfully fetched ${markers.length} real markers from Gemini!`);
-          return markers;
         }
+      } catch (err) {
+        console.warn(`Gemini retrieval with model ${modelName} failed:`, err);
+        // Continue to the next model in the list
       }
-    } catch (err) {
-      console.warn('Gemini safety marker retrieval failed, falling back to rich procedural generator:', err);
     }
   }
 
   // Fallback to rich procedural markers
+  console.log('Falling back to rich procedural generator for safety markers.');
   return generateRichSafetyMarkersForPath(pathCoords);
 }
 
