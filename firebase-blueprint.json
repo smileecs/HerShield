@@ -1,0 +1,62 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "HerShield registered user profile and security state",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "emailVerified": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "email"]
+    },
+    "Contact": {
+      "title": "Contact",
+      "description": "Trusted emergency contact in user's circle",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "relationship": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "name", "phone"]
+    },
+    "Journey": {
+      "title": "Journey",
+      "description": "Active or historical journey with live telemetry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "shareToken": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "completed", "cancelled"] },
+        "startTime": { "type": "string" },
+        "expectedArrival": { "type": "string" },
+        "progressPercent": { "type": "number" }
+      },
+      "required": ["id", "userId", "shareToken", "status", "startTime", "expectedArrival"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Registered user profiles and settings"
+    },
+    "/contacts/{contactId}": {
+      "schema": "Contact",
+      "description": "Trusted emergency contacts for safety network"
+    },
+    "/journeys/{journeyId}": {
+      "schema": "Journey",
+      "description": "Active and archived journeys with share tokens and telemetry"
+    }
+  }
+}

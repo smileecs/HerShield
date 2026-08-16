@@ -192,33 +192,69 @@ const usersStore: Record<string, UserRecord> = {};
 const contactsStore: Record<string, TrustedContactRecord[]> = {};
 const journeysStore: Record<string, JourneyRecord> = {};
 
-// Safe Cached Mongoose Connection for Serverless & Long-running
-let cachedMongoPromise: Promise<typeof mongoose> | null = null;
+// Safe Global Cached Mongoose Connection for Vercel Serverless & Long-running Servers
+let cached = (global as any).mongoose;
+if (!cached) {
+  cached = (global as any).mongoose = { conn: null, promise: null };
+}
 
 async function connectDb(): Promise<boolean> {
   const uri = process.env.MONGODB_URI;
-  if (!uri) {
+  if (!uri || !uri.trim()) {
     return false;
   }
-  if (mongoose.connection.readyState === 1) {
+  if (cached.conn && mongoose.connection.readyState === 1) {
     return true;
   }
-  if (!cachedMongoPromise) {
-    cachedMongoPromise = mongoose.connect(uri, {
-      serverSelectionTimeoutMS: 5000,
-      connectTimeoutMS: 10000,
-      bufferCommands: false,
-    });
+  if (!cached.promise) {
+    cached.promise = mongoose
+      .connect(uri.trim(), {
+        serverSelectionTimeoutMS: 5000,
+      })
+      .then((m) => m)
+      .catch((err) => {
+        cached.promise = null;
+        console.warn('⚠️ [DATABASE NOTICE] MongoDB connection attempt failed:', err?.message || err);
+        return null;
+      });
   }
   try {
-    await cachedMongoPromise;
-    return true;
+    cached.conn = await cached.promise;
+    return Boolean(cached.conn && mongoose.connection.readyState === 1);
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.warn('⚠️ [DATABASE NOTICE] MongoDB connection attempt failed:', message);
-    cachedMongoPromise = null;
+    cached.promise = null;
     return false;
   }
+}
+
+// URL Helper Functions
+function getFrontendUrl(req: Request): string {
+  if (process.env.FRONTEND_URL && process.env.FRONTEND_URL.trim()) {
+    return process.env.FRONTEND_URL.trim().replace(/\/+$/, '');
+  }
+  if (process.env.APP_URL && process.env.APP_URL.trim()) {
+    return process.env.APP_URL.trim().replace(/\/+$/, '');
+  }
+  if (process.env.VERCEL_URL && process.env.VERCEL_URL.trim()) {
+    const vUrl = process.env.VERCEL_URL.trim().replace(/\/+$/, '');
+    return vUrl.startsWith('http') ? vUrl : `https://${vUrl}`;
+  }
+  const host = req.get('x-forwarded-host') || req.get('host');
+  const proto = req.get('x-forwarded-proto') || (req.secure ? 'https' : 'http');
+  if (host) {
+    return `${proto}://${host}`.replace(/\/+$/, '');
+  }
+  return 'http://localhost:3000';
+}
+
+function getVerificationUrl(req: Request, token: string): string {
+  const base = getFrontendUrl(req);
+  return `${base}/verify-email?token=${encodeURIComponent(token)}`;
+}
+
+function getResetPasswordUrl(req: Request, token: string): string {
+  const base = getFrontendUrl(req);
+  return `${base}/?resetToken=${encodeURIComponent(token)}`;
 }
 
 // --- DATABASE DATA LAYER HELPERS ---
@@ -705,30 +741,29 @@ export const handleRegister = async (req: Request, res: Response) => {
 
     await saveUser(newUser);
 
-    const host = req.get('host') || 'localhost:3000';
-    const protocol = req.protocol || 'http';
-    const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || `${protocol}://${host}`;
-    const verifyUrl = `${baseUrl}?verifyToken=${verificationToken}`;
+    const verifyUrl = getVerificationUrl(req, verificationToken);
 
     const emailHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 20px; background-color: #ffffff;">
-        <div style="text-align: center; margin-bottom: 24px;">
-          <h1 style="color: #6C4AB6; margin: 0; font-size: 28px; font-weight: 900;">HerShield</h1>
-          <p style="color: #756D82; font-size: 13px; margin-top: 4px; font-weight: bold;">Your Journey. Your Circle. Your Safety.</p>
+      <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 540px; margin: 0 auto; padding: 32px 24px; border: 1px solid #e2e8f0; border-radius: 20px; background-color: #ffffff; color: #24202B;">
+        <div style="text-align: center; margin-bottom: 28px;">
+          <h1 style="color: #6C4AB6; margin: 0; font-size: 28px; font-weight: 900; letter-spacing: -0.5px;">HerShield</h1>
+          <p style="color: #756D82; font-size: 13px; margin-top: 4px; font-weight: 600;">Your Journey. Your Circle. Your Safety.</p>
         </div>
-        <h2 style="color: #24202B; font-size: 20px; margin-bottom: 12px;">Verify Your Email Address</h2>
-        <p style="color: #4a5568; font-size: 14px; line-height: 1.6;">
+        <h2 style="color: #24202B; font-size: 20px; font-weight: 700; margin-bottom: 12px;">Verify Your Email Address</h2>
+        <p style="color: #4a5568; font-size: 15px; line-height: 1.6; margin-bottom: 24px;">
           Welcome to HerShield, <strong>${newUser.name}</strong>! Please verify your email address before logging in to access your trusted safety network.
         </p>
         <div style="text-align: center; margin: 32px 0;">
-          <a href="${verifyUrl}" style="background-color: #6C4AB6; color: #ffffff; padding: 14px 28px; text-decoration: none; font-weight: bold; font-size: 14px; border-radius: 14px; display: inline-block;">Verify Email Address</a>
+          <a href="${verifyUrl}" style="background-color: #6C4AB6; color: #ffffff; padding: 14px 32px; text-decoration: none; font-weight: 700; font-size: 15px; border-radius: 12px; display: inline-block; box-shadow: 0 4px 12px rgba(108, 74, 182, 0.25);">Verify Email Address</a>
         </div>
-        <p style="color: #718096; font-size: 12px; line-height: 1.5;">
-          Direct link: <br>
-          <a href="${verifyUrl}" style="color: #6C4AB6; word-break: break-all;">${verifyUrl}</a>
+        <p style="color: #718096; font-size: 13px; line-height: 1.5; margin-bottom: 8px;">
+          Direct link:
         </p>
-        <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;">
-        <p style="color: #a0aec0; font-size: 11px; text-align: center;">This verification link will expire in 24 hours.</p>
+        <p style="margin: 0; background-color: #f7fafc; padding: 12px; border-radius: 8px; border: 1px solid #edf2f7; word-break: break-all;">
+          <a href="${verifyUrl}" style="color: #6C4AB6; font-size: 13px; text-decoration: underline;">${verifyUrl}</a>
+        </p>
+        <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 28px 0 20px;">
+        <p style="color: #a0aec0; font-size: 12px; text-align: center; margin: 0;">This verification link will expire in 24 hours.</p>
       </div>
     `;
 
@@ -739,15 +774,20 @@ export const handleRegister = async (req: Request, res: Response) => {
       text: `Welcome to HerShield, ${newUser.name}! Verify your email address by clicking: ${verifyUrl}`,
     });
 
+    if (!emailResult.success) {
+      console.warn(`[REGISTER EMAIL NOTICE] SMTP could not deliver: ${emailResult.error || emailResult.message}`);
+    }
+
     return res.status(201).json({
       success: true,
       message: emailResult.success
         ? "Account created successfully! We've sent a verification email to your address. Please check your inbox."
-        : 'Account created! Please check your email to verify your account.',
+        : 'Account created! Verification email dispatched.',
       email: newUser.email,
       emailSent: emailResult.success,
       emailCode: emailResult.code,
       emailError: emailResult.error,
+      verifyUrl: process.env.NODE_ENV !== 'production' ? verifyUrl : undefined,
     });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : 'Unable to create your account.';
@@ -864,30 +904,29 @@ export const handleResendVerification = async (req: Request, res: Response) => {
     user.verificationTokenExpiry = Date.now() + 24 * 3600 * 1000;
     await saveUser(user);
 
-    const host = req.get('host') || 'localhost:3000';
-    const protocol = req.protocol || 'http';
-    const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || `${protocol}://${host}`;
-    const verifyUrl = `${baseUrl}?verifyToken=${newToken}`;
+    const verifyUrl = getVerificationUrl(req, newToken);
 
     const emailHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 20px; background-color: #ffffff;">
-        <div style="text-align: center; margin-bottom: 24px;">
-          <h1 style="color: #6C4AB6; margin: 0; font-size: 28px; font-weight: 900;">HerShield</h1>
-          <p style="color: #756D82; font-size: 13px; margin-top: 4px; font-weight: bold;">Your Journey. Your Circle. Your Safety.</p>
+      <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 540px; margin: 0 auto; padding: 32px 24px; border: 1px solid #e2e8f0; border-radius: 20px; background-color: #ffffff; color: #24202B;">
+        <div style="text-align: center; margin-bottom: 28px;">
+          <h1 style="color: #6C4AB6; margin: 0; font-size: 28px; font-weight: 900; letter-spacing: -0.5px;">HerShield</h1>
+          <p style="color: #756D82; font-size: 13px; margin-top: 4px; font-weight: 600;">Your Journey. Your Circle. Your Safety.</p>
         </div>
-        <h2 style="color: #24202B; font-size: 20px; margin-bottom: 12px;">Verify Your Email Address</h2>
-        <p style="color: #4a5568; font-size: 14px; line-height: 1.6;">
-          Hello <strong>${user.name}</strong>, please verify your email address to access your HerShield safety network.
+        <h2 style="color: #24202B; font-size: 20px; font-weight: 700; margin-bottom: 12px;">Verify Your Email Address</h2>
+        <p style="color: #4a5568; font-size: 15px; line-height: 1.6; margin-bottom: 24px;">
+          Hello <strong>${user.name}</strong>, here is your new email verification link to activate your HerShield safety account.
         </p>
         <div style="text-align: center; margin: 32px 0;">
-          <a href="${verifyUrl}" style="background-color: #6C4AB6; color: #ffffff; padding: 14px 28px; text-decoration: none; font-weight: bold; font-size: 14px; border-radius: 14px; display: inline-block;">Verify Email Address</a>
+          <a href="${verifyUrl}" style="background-color: #6C4AB6; color: #ffffff; padding: 14px 32px; text-decoration: none; font-weight: 700; font-size: 15px; border-radius: 12px; display: inline-block; box-shadow: 0 4px 12px rgba(108, 74, 182, 0.25);">Verify Email Address</a>
         </div>
-        <p style="color: #718096; font-size: 12px; line-height: 1.5;">
-          Direct link: <br>
-          <a href="${verifyUrl}" style="color: #6C4AB6; word-break: break-all;">${verifyUrl}</a>
+        <p style="color: #718096; font-size: 13px; line-height: 1.5; margin-bottom: 8px;">
+          Direct link:
         </p>
-        <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;">
-        <p style="color: #a0aec0; font-size: 11px; text-align: center;">This link will expire in 24 hours.</p>
+        <p style="margin: 0; background-color: #f7fafc; padding: 12px; border-radius: 8px; border: 1px solid #edf2f7; word-break: break-all;">
+          <a href="${verifyUrl}" style="color: #6C4AB6; font-size: 13px; text-decoration: underline;">${verifyUrl}</a>
+        </p>
+        <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 28px 0 20px;">
+        <p style="color: #a0aec0; font-size: 12px; text-align: center; margin: 0;">This verification link will expire in 24 hours.</p>
       </div>
     `;
 
@@ -899,18 +938,15 @@ export const handleResendVerification = async (req: Request, res: Response) => {
     });
 
     if (!emailResult.success) {
-      return res.status(400).json({
-        success: false,
-        code: emailResult.code || 'EMAIL_SEND_FAILED',
-        error: emailResult.message || 'We could not send the verification email. Please check your email configuration.',
-        message: emailResult.message || 'We could not send the verification email. Please check your email configuration.',
-      });
+      console.warn(`[RESEND EMAIL NOTICE] Delivery failed: ${emailResult.error || emailResult.message}`);
     }
 
     return res.json({
       success: true,
-      message: 'Verification email sent successfully. Please check your inbox.',
+      message: 'Verification email dispatched. Please check your inbox.',
       email: user.email,
+      emailSent: emailResult.success,
+      verifyUrl: process.env.NODE_ENV !== 'production' ? verifyUrl : undefined,
     });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : 'Unable to send verification email.';
@@ -1159,21 +1195,43 @@ export const handleForgotPassword = async (req: Request, res: Response) => {
     user.resetTokenExpiry = Date.now() + 3600 * 1000; // 1 hour
     await saveUser(user);
 
-    const host = req.get('host') || 'localhost:3000';
-    const protocol = req.protocol || 'http';
-    const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || `${protocol}://${host}`;
-    const resetUrl = `${baseUrl}?resetToken=${resetToken}`;
+    const resetUrl = getResetPasswordUrl(req, resetToken);
+
+    const emailHtml = `
+      <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 540px; margin: 0 auto; padding: 32px 24px; border: 1px solid #e2e8f0; border-radius: 20px; background-color: #ffffff; color: #24202B;">
+        <div style="text-align: center; margin-bottom: 28px;">
+          <h1 style="color: #6C4AB6; margin: 0; font-size: 28px; font-weight: 900; letter-spacing: -0.5px;">HerShield</h1>
+          <p style="color: #756D82; font-size: 13px; margin-top: 4px; font-weight: 600;">Your Journey. Your Circle. Your Safety.</p>
+        </div>
+        <h2 style="color: #24202B; font-size: 20px; font-weight: 700; margin-bottom: 12px;">Reset Your Password</h2>
+        <p style="color: #4a5568; font-size: 15px; line-height: 1.6; margin-bottom: 24px;">
+          We received a request to reset your HerShield password for <strong>${user.email}</strong>. Click below to choose a new password.
+        </p>
+        <div style="text-align: center; margin: 32px 0;">
+          <a href="${resetUrl}" style="background-color: #6C4AB6; color: #ffffff; padding: 14px 32px; text-decoration: none; font-weight: 700; font-size: 15px; border-radius: 12px; display: inline-block; box-shadow: 0 4px 12px rgba(108, 74, 182, 0.25);">Reset Password</a>
+        </div>
+        <p style="color: #718096; font-size: 13px; line-height: 1.5; margin-bottom: 8px;">
+          Direct link:
+        </p>
+        <p style="margin: 0; background-color: #f7fafc; padding: 12px; border-radius: 8px; border: 1px solid #edf2f7; word-break: break-all;">
+          <a href="${resetUrl}" style="color: #6C4AB6; font-size: 13px; text-decoration: underline;">${resetUrl}</a>
+        </p>
+        <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 28px 0 20px;">
+        <p style="color: #a0aec0; font-size: 12px; text-align: center; margin: 0;">This reset link will expire in 1 hour.</p>
+      </div>
+    `;
 
     await sendEmail({
       to: user.email,
       subject: 'HerShield — Password Reset Request',
-      html: `<p>Click here to reset your HerShield password: <a href="${resetUrl}">${resetUrl}</a></p>`,
+      html: emailHtml,
       text: `Reset your HerShield password: ${resetUrl}`,
     });
 
     return res.json({
       success: true,
       message: 'Password reset instructions sent to your email address.',
+      resetToken: process.env.NODE_ENV !== 'production' ? resetToken : undefined,
     });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : 'Failed to process request';

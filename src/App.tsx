@@ -16,6 +16,7 @@ import { ProfilePage } from './pages/ProfilePage';
 import { SharedJourneyPage } from './pages/SharedJourneyPage';
 
 import { User, TrustedContact, Journey, RouteOption } from './types';
+import { testFirestoreConnection } from './lib/firebase';
 import {
   getStoredUser,
   setStoredToken,
@@ -80,16 +81,20 @@ export default function App() {
         })
         .catch((err) => {
           showToast(err.message || 'Email verification link invalid or expired.', 'error');
+        })
+        .finally(() => {
+          window.history.replaceState({}, document.title, '/');
         });
-      // Clean up search params
-      window.history.replaceState({}, document.title, window.location.pathname);
     } else if (resetToken) {
       setInitialResetToken(resetToken);
       setIsAuthModalOpen(true);
-      window.history.replaceState({}, document.title, window.location.pathname);
+      window.history.replaceState({}, document.title, '/');
     }
 
     async function init() {
+      // Validate Firestore connection on boot
+      testFirestoreConnection().catch(() => {});
+
       try {
         const me = await apiGetMe();
         setUser(me);
