@@ -74,7 +74,7 @@ export const Footer: React.FC<FooterProps> = ({ setActiveTab }) => {
         </div>
 
         <div className="pt-8 border-t border-slate-800 flex flex-col md:flex-row items-center justify-between text-xs text-slate-500 gap-4">
-          <p>© {new Date().getFullYear()} SafeRoute Circle. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} HerShield. All rights reserved.</p>
           <p className="flex items-center gap-1">
             Built with <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500" /> for women's safe mobility everywhere.
           </p>
