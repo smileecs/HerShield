@@ -10,11 +10,15 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import mongoose from 'mongoose';
+import fs from 'fs';
 import { Server as SocketIOServer } from 'socket.io';
 import { initializeApp as initAdminApp, getApps as getAdminApps } from 'firebase-admin/app';
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import type { Firestore } from 'firebase-admin/firestore';
-import firebaseConfig from './firebase-applet-config.json';
+
+const firebaseConfig = JSON.parse(
+  fs.readFileSync(path.join(process.cwd(), 'firebase-applet-config.json'), 'utf8')
+);
 
 const PORT = 3000;
 
@@ -1285,7 +1289,6 @@ export const handleRegister = async (req: Request, res: Response) => {
       message: 'Account created! Please check your email to verify your address.',
       email: newUser.email,
       unverified: true,
-      verifyUrl: verifyUrl,
     });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : 'Unable to create your account.';
@@ -1526,7 +1529,6 @@ export const handleLogin = async (req: Request, res: Response) => {
     }
 
     if (!user.emailVerified) {
-      const verifyUrl = getVerificationUrl(req, user.verificationToken || '');
       return res.status(403).json({
         success: false,
         code: 'EMAIL_NOT_VERIFIED',
@@ -1534,7 +1536,6 @@ export const handleLogin = async (req: Request, res: Response) => {
         message: 'Please verify your email address before logging in.',
         unverified: true,
         email: user.email,
-        verifyUrl,
       });
     }
 

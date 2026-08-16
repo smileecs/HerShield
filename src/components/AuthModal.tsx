@@ -34,9 +34,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [successInfo, setSuccessInfo] = useState<string | null>(null);
   const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
-  const [verifyUrl, setVerifyUrl] = useState<string | null>(null);
   const [resendLoading, setResendLoading] = useState(false);
-  const [verifyingInstantly, setVerifyingInstantly] = useState(false);
 
   useEffect(() => {
     if (initialResetToken) {
@@ -64,7 +62,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     e.preventDefault();
     setError(null);
     setSuccessInfo(null);
-    setVerifyUrl(null);
 
     if (mode === 'login') {
       if (!email || !password) {
@@ -80,9 +77,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       } catch (err: any) {
         if (err.unverified) {
           setUnverifiedEmail(err.email || email);
-          if (err.verifyUrl) {
-            setVerifyUrl(err.verifyUrl);
-          }
           setError('Please verify your email address before logging in.');
         } else {
           setError(err.message || 'Invalid email or password.');
@@ -109,9 +103,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         const res = await apiRegister(name, email, password, confirmPassword);
         setSuccessInfo(res.message || 'Account created! Please check your email for the verification link.');
         setUnverifiedEmail(email);
-        if (res.verifyUrl) {
-          setVerifyUrl(res.verifyUrl);
-        }
         setMode('login');
         showToast('Registration successful! Please check your email to verify your account before logging in.', 'success');
       } catch (err: any) {
@@ -173,28 +164,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       showToast(err.message || 'Failed to resend verification email.', 'error');
     } finally {
       setResendLoading(false);
-    }
-  };
-
-  const handleInstantVerify = async (url: string) => {
-    setVerifyingInstantly(true);
-    try {
-      const res = await fetch(url);
-      const data = await res.json();
-      if (data.success) {
-        showToast('Email verified successfully! You can now log in.', 'success');
-        setSuccessInfo('Email verified successfully! Please enter your password to sign in.');
-        setError(null);
-        setVerifyUrl(null);
-        setUnverifiedEmail(null);
-        setMode('login');
-      } else {
-        setError(data.message || 'Verification failed.');
-      }
-    } catch (err: any) {
-      setError(err.message || 'Verification request failed.');
-    } finally {
-      setVerifyingInstantly(false);
     }
   };
 
@@ -263,23 +232,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
               <div className="flex-1">
                 <div>{error}</div>
-                {(unverifiedEmail || verifyUrl) && (
+                {unverifiedEmail && (
                   <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                    {verifyUrl && (
-                      <button
-                        type="button"
-                        onClick={() => handleInstantVerify(verifyUrl)}
-                        disabled={verifyingInstantly}
-                        className="px-3 py-1.5 bg-[#6C4AB6] hover:bg-[#5A3B9E] text-white rounded-lg font-bold text-xs flex items-center gap-1.5 transition-colors disabled:opacity-50"
-                      >
-                        {verifyingInstantly ? (
-                          <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                        ) : (
-                          <Shield className="w-3 h-3 fill-white/20 animate-pulse" />
-                        )}
-                        <span>Verify Instantly (Sandbox Helper)</span>
-                      </button>
-                    )}
                     <button
                       type="button"
                       onClick={handleResend}
@@ -304,23 +258,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
               <div className="flex-1">
                 <div>{successInfo}</div>
-                {(mode === 'register' || unverifiedEmail || verifyUrl) && (
+                {(mode === 'register' || unverifiedEmail) && (
                   <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                    {verifyUrl && (
-                      <button
-                        type="button"
-                        onClick={() => handleInstantVerify(verifyUrl)}
-                        disabled={verifyingInstantly}
-                        className="px-3 py-1.5 bg-[#2E9B67] hover:bg-[#237A50] text-white rounded-lg font-bold text-xs flex items-center gap-1.5 transition-colors disabled:opacity-50"
-                      >
-                        {verifyingInstantly ? (
-                          <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                        ) : (
-                          <Shield className="w-3 h-3 fill-white/20 animate-pulse" />
-                        )}
-                        <span>Verify Instantly (Sandbox Helper)</span>
-                      </button>
-                    )}
                     <button
                       type="button"
                       onClick={handleResend}
