@@ -24,17 +24,20 @@ function getJwtSecret(): string {
 }
 
 // --- EXPRESS & SOCKET.IO SETUP ---
-const app = express();
+export const app = express();
 const server = http.createServer(app);
 
-// Initialize Socket.IO with safe CORS
-const io = new SocketIOServer(server, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  },
-  transports: ['websocket', 'polling'],
-});
+// Initialize Socket.IO with safe CORS (only if not on serverless Vercel)
+let io: SocketIOServer | null = null;
+if (!process.env.VERCEL) {
+  io = new SocketIOServer(server, {
+    cors: {
+      origin: '*',
+      methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    },
+    transports: ['websocket', 'polling'],
+  });
+}
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -2180,47 +2183,49 @@ app.delete('/api/journeys/:id', authenticateToken, handleDeleteJourney);
 app.delete('/journeys/:id', authenticateToken, handleDeleteJourney);
 
 // --- SOCKET.IO REALTIME EVENTS ---
-io.on('connection', (socket) => {
-  socket.on('join_journey', async (journeyIdOrToken: string) => {
-    try {
-      let j = await getJourneyById(journeyIdOrToken);
-      if (!j) {
-        j = await getJourneyByShareToken(journeyIdOrToken);
-      }
-      if (j) {
-        const roomName = `journey:${j.id}`;
-        socket.join(roomName);
-        socket.emit('journey_state', j);
-      }
-    } catch (e) {
-      console.warn('Socket join error:', e);
-    }
-  });
-
-  socket.on('update_location', async (data: { journeyId: string; lat: number; lng: number; progressPercent?: number }) => {
-    try {
-      const { journeyId, lat, lng, progressPercent } = data;
-      const j = await getJourneyById(journeyId);
-      if (j && j.status === 'active') {
-        j.currentLocation = { lat, lng };
-        if (typeof progressPercent === 'number') {
-          j.progressPercent = Math.min(100, Math.max(0, progressPercent));
+if (io) {
+  io.on('connection', (socket) => {
+    socket.on('join_journey', async (journeyIdOrToken: string) => {
+      try {
+        let j = await getJourneyById(journeyIdOrToken);
+        if (!j) {
+          j = await getJourneyByShareToken(journeyIdOrToken);
         }
-        j.locationHistory.push({ lat, lng, timestamp: new Date().toISOString() });
-        await saveJourney(j);
-
-        io.to(`journey:${journeyId}`).emit('location_updated', {
-          journeyId,
-          currentLocation: { lat, lng },
-          progressPercent: j.progressPercent,
-          timestamp: new Date().toISOString(),
-        });
+        if (j) {
+          const roomName = `journey:${j.id}`;
+          socket.join(roomName);
+          socket.emit('journey_state', j);
+        }
+      } catch (e) {
+        console.warn('Socket join error:', e);
       }
-    } catch (e) {
-      console.warn('Socket location update error:', e);
-    }
+    });
+
+    socket.on('update_location', async (data: { journeyId: string; lat: number; lng: number; progressPercent?: number }) => {
+      try {
+        const { journeyId, lat, lng, progressPercent } = data;
+        const j = await getJourneyById(journeyId);
+        if (j && j.status === 'active') {
+          j.currentLocation = { lat, lng };
+          if (typeof progressPercent === 'number') {
+            j.progressPercent = Math.min(100, Math.max(0, progressPercent));
+          }
+          j.locationHistory.push({ lat, lng, timestamp: new Date().toISOString() });
+          await saveJourney(j);
+
+          io?.to(`journey:${journeyId}`).emit('location_updated', {
+            journeyId,
+            currentLocation: { lat, lng },
+            progressPercent: j.progressPercent,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      } catch (e) {
+        console.warn('Socket location update error:', e);
+      }
+    });
   });
-});
+}
 
 // --- CATCH-ALL UNKNOWN API ENDPOINTS ---
 app.all('/api/*', (_req: Request, res: Response) => {
