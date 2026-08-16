@@ -35,10 +35,10 @@ service cloud.firestore {
       allow read: if true;
       allow write: if isValidId(contactId) && (
         request.resource == null || (
-          request.resource.data.keys().hasAll(['id', 'userId', 'name', 'email']) &&
+          request.resource.data.keys().hasAll(['id', 'userId', 'name', 'contact']) &&
           isValidId(request.resource.data.userId) &&
           isValidName(request.resource.data.name) &&
-          isValidEmail(request.resource.data.email)
+          isValidEmail(request.resource.data.contact)
         )
       );
     }

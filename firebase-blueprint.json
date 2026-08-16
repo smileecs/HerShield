@@ -22,12 +22,13 @@
         "id": { "type": "string" },
         "userId": { "type": "string" },
         "name": { "type": "string" },
-        "phone": { "type": "string" },
-        "email": { "type": "string" },
+        "contact": { "type": "string" },
         "relationship": { "type": "string" },
+        "verificationStatus": { "type": "string" },
+        "sharingPreference": { "type": "string" },
         "createdAt": { "type": "string" }
       },
-      "required": ["id", "userId", "name", "phone"]
+      "required": ["id", "userId", "name", "contact"]
     },
     "Journey": {
       "title": "Journey",
