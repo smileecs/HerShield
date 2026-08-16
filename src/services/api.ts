@@ -95,6 +95,7 @@ async function handleResponse(res: Response): Promise<any> {
     (errorObj as any).email = data?.email;
     (errorObj as any).code = data?.code;
     (errorObj as any).verificationToken = data?.verificationToken;
+    (errorObj as any).verifyUrl = data?.verifyUrl;
     throw errorObj;
   }
 

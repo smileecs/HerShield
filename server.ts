@@ -1285,7 +1285,7 @@ export const handleRegister = async (req: Request, res: Response) => {
       message: 'Account created! Please check your email to verify your address.',
       email: newUser.email,
       unverified: true,
-      verifyUrl: process.env.NODE_ENV !== 'production' ? verifyUrl : undefined,
+      verifyUrl: verifyUrl,
     });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : 'Unable to create your account.';
@@ -1526,6 +1526,7 @@ export const handleLogin = async (req: Request, res: Response) => {
     }
 
     if (!user.emailVerified) {
+      const verifyUrl = getVerificationUrl(req, user.verificationToken || '');
       return res.status(403).json({
         success: false,
         code: 'EMAIL_NOT_VERIFIED',
@@ -1533,6 +1534,7 @@ export const handleLogin = async (req: Request, res: Response) => {
         message: 'Please verify your email address before logging in.',
         unverified: true,
         email: user.email,
+        verifyUrl,
       });
     }
 

@@ -2,9 +2,64 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // Helper functions for validating formats and constraints
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidName(name) {
+      return name is string && name.size() >= 1 && name.size() <= 100;
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.size() <= 150 && email.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$');
+    }
+
+    // 1. Users Collection Schema and Transition Rules
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if isValidId(userId) && (
+        request.resource == null || (
+          request.resource.data.keys().hasAll(['id', 'name', 'email', 'emailVerified']) &&
+          request.resource.data.id == userId &&
+          isValidName(request.resource.data.name) &&
+          isValidEmail(request.resource.data.email) &&
+          request.resource.data.emailVerified is bool
+        )
+      );
+    }
+
+    // 2. Contacts Collection Schema Rules
+    match /contacts/{contactId} {
+      allow read: if true;
+      allow write: if isValidId(contactId) && (
+        request.resource == null || (
+          request.resource.data.keys().hasAll(['id', 'userId', 'name', 'email']) &&
+          isValidId(request.resource.data.userId) &&
+          isValidName(request.resource.data.name) &&
+          isValidEmail(request.resource.data.email)
+        )
+      );
+    }
+
+    // 3. Journeys Collection Schema Rules
+    match /journeys/{journeyId} {
+      allow read: if true;
+      allow write: if isValidId(journeyId) && (
+        request.resource == null || (
+          request.resource.data.keys().hasAll(['id', 'userId', 'status', 'startTime', 'shareToken']) &&
+          isValidId(request.resource.data.userId) &&
+          request.resource.data.status is string &&
+          request.resource.data.shareToken is string &&
+          request.resource.data.startTime is string
+        )
+      );
+    }
+
+    // Default deny for anything else
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
   }
 }
-
