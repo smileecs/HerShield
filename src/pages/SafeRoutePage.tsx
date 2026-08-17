@@ -486,10 +486,10 @@ export const SafeRoutePage: React.FC<SafeRoutePageProps> = ({ onSelectRouteForJo
                               }`}
                             />
                             {isHighSafety
-                              ? '🟢 Higher Safety Info'
+                              ? 'Higher Safety Info'
                               : isModerateSafety
-                              ? '🟡 Moderate'
-                              : '🔴 Concerns Reported'}
+                              ? 'Moderate'
+                              : 'Concerns Reported'}
                           </span>
                         </div>
                       </div>

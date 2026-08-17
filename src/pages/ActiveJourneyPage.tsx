@@ -649,7 +649,7 @@ export const ActiveJourneyPage: React.FC<ActiveJourneyPageProps> = ({
       {/* ARRIVAL CHECK MODAL */}
       <AnimatePresence>
         {showArrivalModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#24202B]/60 backdrop-blur-xs">
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-[#24202B]/60 backdrop-blur-xs">
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -705,7 +705,7 @@ export const ActiveJourneyPage: React.FC<ActiveJourneyPageProps> = ({
       {/* END JOURNEY CONFIRMATION MODAL */}
       <AnimatePresence>
         {showEndModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#24202B]/60 backdrop-blur-xs">
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-[#24202B]/60 backdrop-blur-xs">
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}

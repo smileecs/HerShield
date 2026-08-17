@@ -6,7 +6,7 @@ export const AboutPage: React.FC = () => {
     <div className="max-w-4xl mx-auto space-y-10 pb-12">
       {/* HEADER */}
       <section className="bg-white p-8 rounded-3xl border border-slate-200/80 shadow-xs space-y-4 text-center">
-        <div className="w-12 h-12 rounded-2xl bg-teal-100 text-teal-800 flex items-center justify-center mx-auto">
+        <div className="w-12 h-12 rounded-2xl bg-purple-100 text-[#6C4AB6] flex items-center justify-center mx-auto">
           <Shield className="w-6 h-6" />
         </div>
         <h1 className="text-3xl font-black text-slate-900 tracking-tight">About HerShield</h1>
@@ -17,8 +17,8 @@ export const AboutPage: React.FC = () => {
 
       {/* METHODOLOGY OF SAFETY INFORMATION SCORE */}
       <section className="bg-white p-8 rounded-3xl border border-slate-200/80 shadow-xs space-y-6">
-        <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-teal-800">
-          <Lightbulb className="w-4 h-4 text-teal-700" />
+        <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-[#6C4AB6]">
+          <Lightbulb className="w-4 h-4 text-[#6C4AB6]" />
           <span>Safety Information Methodology</span>
         </div>
 
@@ -30,7 +30,7 @@ export const AboutPage: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
           <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
             <div className="flex items-center gap-2 font-bold text-slate-900 text-sm">
-              <Building2 className="w-4 h-4 text-teal-700" />
+              <Building2 className="w-4 h-4 text-[#6C4AB6]" />
               <span>Public Facilities Density (35%)</span>
             </div>
             <p className="text-xs text-slate-600 leading-normal">

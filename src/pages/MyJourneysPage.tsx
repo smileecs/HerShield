@@ -172,7 +172,7 @@ export const MyJourneysPage: React.FC<MyJourneysPageProps> = ({
 
       {/* JOURNEY DETAIL MODAL */}
       {selectedJourney && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#24202B]/60 backdrop-blur-xs">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-[#24202B]/60 backdrop-blur-xs">
           <div className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>

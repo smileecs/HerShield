@@ -86,7 +86,7 @@ export const SharedJourneyPage: React.FC<SharedJourneyPageProps> = ({ shareToken
   if (loading) {
     return (
       <div className="py-20 text-center space-y-4">
-        <div className="w-10 h-10 border-4 border-teal-700 border-t-transparent rounded-full animate-spin mx-auto"></div>
+        <div className="w-10 h-10 border-4 border-[#6C4AB6] border-t-transparent rounded-full animate-spin mx-auto"></div>
         <p className="text-sm font-bold text-slate-600">Loading live journey share...</p>
       </div>
     );
@@ -102,7 +102,7 @@ export const SharedJourneyPage: React.FC<SharedJourneyPageProps> = ({ shareToken
         </p>
         <button
           onClick={onGoHome}
-          className="px-5 py-2.5 rounded-xl font-bold text-xs bg-teal-700 text-white hover:bg-teal-800"
+          className="px-5 py-2.5 rounded-xl font-bold text-xs bg-[#6C4AB6] text-white hover:bg-[#43266F]"
         >
           Go to HerShield
         </button>
@@ -123,11 +123,11 @@ export const SharedJourneyPage: React.FC<SharedJourneyPageProps> = ({ shareToken
       {/* Top Banner */}
       <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-teal-100 text-teal-800 font-black flex items-center justify-center text-sm">
+          <div className="w-10 h-10 rounded-2xl bg-purple-100 text-[#6C4AB6] font-black flex items-center justify-center text-sm">
             🛡️
           </div>
           <div>
-            <span className="text-[11px] font-extrabold uppercase tracking-wider text-teal-800 block">
+            <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#6C4AB6] block">
               Trusted Journey Sharing
             </span>
             <h1 className="text-lg font-black text-slate-900">
@@ -147,7 +147,7 @@ export const SharedJourneyPage: React.FC<SharedJourneyPageProps> = ({ shareToken
 
       {/* Completion Banner */}
       {isCompleted ? (
-        <div className="bg-gradient-to-r from-emerald-600 to-teal-600 text-white p-8 rounded-3xl text-center space-y-4 shadow-xl">
+        <div className="bg-gradient-to-r from-emerald-600 to-emerald-700 text-white p-8 rounded-3xl text-center space-y-4 shadow-xl">
           <div className="w-16 h-16 rounded-3xl bg-white/20 backdrop-blur-md flex items-center justify-center mx-auto text-3xl">
             💚
           </div>

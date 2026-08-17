@@ -13,17 +13,17 @@ export const Footer: React.FC<FooterProps> = ({ setActiveTab }) => {
           {/* Brand Info */}
           <div className="md:col-span-2 space-y-4">
             <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-teal-700 flex items-center justify-center text-white shadow-md">
-                <Shield className="w-5 h-5 fill-teal-200 stroke-[2.2]" />
+              <div className="w-9 h-9 rounded-xl bg-[#6C4AB6] flex items-center justify-center text-white shadow-md">
+                <Shield className="w-5 h-5 fill-purple-200 stroke-[2.2]" />
               </div>
               <span className="font-extrabold text-xl text-white tracking-tight">
-                Her<span className="text-teal-400">Shield</span>
+                Her<span className="text-[#E88BA5]">Shield</span>
               </span>
             </div>
             <p className="text-sm text-slate-400 leading-relaxed max-w-md">
               HerShield empowers women to travel smarter using safety-related route comparison data and stay safely connected with their trusted circle during active journeys.
             </p>
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 text-xs text-teal-300 border border-slate-700/80">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 text-xs text-purple-300 border border-slate-700/80">
               <Lock className="w-3.5 h-3.5 text-emerald-400" />
               <span>Location data is private & active journey-bound</span>
             </div>
@@ -67,7 +67,7 @@ export const Footer: React.FC<FooterProps> = ({ setActiveTab }) => {
             <p className="text-xs text-slate-400 leading-relaxed mb-3">
               Safety information scores are estimates based on available facility data and community inputs. They do not guarantee personal safety.
             </p>
-            <div className="p-3 rounded-xl bg-teal-950/50 border border-teal-800/40 text-xs text-teal-200">
+            <div className="p-3 rounded-xl bg-purple-950/30 border border-purple-800/30 text-xs text-purple-200">
               <span className="font-bold">Hackathon Prototype</span> — Designed as a modern women-safety technology demonstration.
             </div>
           </div>

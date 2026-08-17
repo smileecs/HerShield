@@ -62,7 +62,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
 
           {/* Desktop Nav Links */}
-          <nav className="hidden md:flex items-center gap-1 bg-[#F8F6FC] p-1 rounded-2xl border border-slate-200/70">
+          <nav className="hidden lg:flex items-center gap-1 bg-[#F8F6FC] p-1 rounded-2xl border border-slate-200/70">
             {navLinks.map((link) => {
               const Icon = link.icon;
               const isActive = activeTab === link.id;
@@ -89,7 +89,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </nav>
 
           {/* Right Controls */}
-          <div className="hidden md:flex items-center gap-3">
+          <div className="hidden lg:flex items-center gap-3">
             {/* Demo Mode Toggle */}
             <button
               onClick={() => setIsDemoMode(!isDemoMode)}
@@ -163,7 +163,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* Mobile Menu Trigger */}
-          <div className="flex md:hidden items-center gap-2">
+          <div className="flex lg:hidden items-center gap-2">
             <button
               onClick={() => setIsDemoMode(!isDemoMode)}
               className={`p-2 rounded-xl text-xs font-bold border ${
@@ -185,7 +185,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* Mobile Menu Drawer */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-b border-slate-200 bg-white px-4 pt-2 pb-6 space-y-2 animate-slide-down">
+        <div className="lg:hidden border-b border-slate-200 bg-white px-4 pt-2 pb-6 space-y-2 animate-slide-down">
           {navLinks.map((link) => {
             const Icon = link.icon;
             const isActive = activeTab === link.id;
@@ -194,11 +194,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 key={link.id}
                 onClick={() => handleNavClick(link.id)}
                 className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-semibold transition-colors ${
-                  isActive ? 'bg-teal-50 text-teal-800 font-bold' : 'text-slate-700 hover:bg-slate-50'
+                  isActive ? 'bg-purple-50 text-[#6C4AB6] font-bold' : 'text-slate-700 hover:bg-slate-50'
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <Icon className={`w-5 h-5 ${isActive ? 'text-teal-700' : 'text-slate-400'}`} />
+                  <Icon className={`w-5 h-5 ${isActive ? 'text-[#6C4AB6]' : 'text-slate-400'}`} />
                   <span>{link.label}</span>
                 </div>
                 {link.badge && (
@@ -217,7 +217,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   onClick={() => handleNavClick('profile')}
                   className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50"
                 >
-                  <User className="w-5 h-5 text-teal-700" />
+                  <User className="w-5 h-5 text-[#6C4AB6]" />
                   <span>Profile ({user.name})</span>
                 </button>
                 <button
@@ -237,7 +237,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   onOpenAuth();
                   setMobileMenuOpen(false);
                 }}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-teal-700 text-white shadow-md shadow-teal-700/20"
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-[#6C4AB6] text-white shadow-md shadow-[#6C4AB6]/20"
               >
                 <User className="w-4 h-4" />
                 <span>Login / Sign Up</span>

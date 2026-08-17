@@ -214,9 +214,20 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
     }
   }, [routes, selectedRouteId, startLocation, destination, currentLocation, isJourneyActive, interactive, onSelectRoute]);
 
-  // Clean up map instance on unmount
+  // Handle Container Resizing dynamically
   useEffect(() => {
+    if (!mapContainerRef.current) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.invalidateSize();
+      }
+    });
+
+    resizeObserver.observe(mapContainerRef.current);
+
     return () => {
+      resizeObserver.disconnect();
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
@@ -229,15 +240,15 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
       <div ref={mapContainerRef} className={className} />
 
       {/* Map Legend Overlay */}
-      <div className="absolute bottom-3 left-3 z-[400] bg-white/95 backdrop-blur-md px-3.5 py-2 rounded-xl shadow-md border border-slate-200 text-xs flex flex-wrap items-center gap-3">
+      <div className="absolute bottom-3 left-3 z-[400] bg-white/95 backdrop-blur-md px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl shadow-md border border-slate-200 text-[10px] sm:text-xs flex flex-wrap items-center gap-2 sm:gap-3 max-w-[calc(100%-24px)] pointer-events-none">
         <div className="flex items-center gap-1.5 font-medium text-[#24202B]">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#6C4AB6]"></span> Start
+          <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-[#6C4AB6]"></span> Start
         </div>
         <div className="flex items-center gap-1.5 font-medium text-[#24202B]">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#E88BA5]"></span> Destination
+          <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-[#E88BA5]"></span> Destination
         </div>
         <div className="flex items-center gap-1.5 font-medium text-[#24202B]">
-          <span className="w-3 h-1 bg-[#6C4AB6] rounded-full"></span> Recommended Route
+          <span className="w-2.5 h-1 sm:w-3 sm:h-1 bg-[#6C4AB6] rounded-full"></span> Recommended Route
         </div>
       </div>
     </div>

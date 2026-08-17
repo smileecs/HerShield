@@ -44,7 +44,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, contacts, onLogo
         <img
           src={user.profileImage || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200'}
           alt={user.name}
-          className="w-20 h-20 rounded-3xl object-cover ring-4 ring-teal-600/20 shadow-md shrink-0"
+          className="w-20 h-20 rounded-3xl object-cover ring-4 ring-[#6C4AB6]/20 shadow-md shrink-0"
         />
 
         <div className="space-y-1 text-center sm:text-left flex-1">
@@ -53,7 +53,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, contacts, onLogo
             <Mail className="w-3.5 h-3.5 text-slate-400" />
             <span>{user.email}</span>
           </p>
-          <p className="text-[11px] text-teal-800 font-bold pt-1">
+          <p className="text-[11px] text-[#6C4AB6] font-bold pt-1">
             Verified HerShield Member
           </p>
         </div>
@@ -69,8 +69,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, contacts, onLogo
 
       {/* PRIVACY SETTINGS */}
       <section className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200/80 shadow-xs space-y-6">
-        <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-teal-800">
-          <Lock className="w-4 h-4 text-teal-700" />
+        <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-[#6C4AB6]">
+          <Lock className="w-4 h-4 text-[#6C4AB6]" />
           <span>Privacy & Sharing Controls</span>
         </div>
 
@@ -80,26 +80,26 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, contacts, onLogo
             <div className="space-y-2">
               <label
                 onClick={() => setSharingPref('active_journey_only')}
-                className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer font-bold ${
+                className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer font-bold transition-all ${
                   sharingPref === 'active_journey_only'
-                    ? 'bg-teal-50 border-teal-600 text-teal-950'
-                    : 'bg-white border-slate-200 text-slate-700'
+                    ? 'bg-purple-50/80 border-[#6C4AB6] text-[#43266F]'
+                    : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
                 }`}
               >
                 <span>Only during active journey (Recommended)</span>
-                {sharingPref === 'active_journey_only' && <Check className="w-4 h-4 text-teal-700" />}
+                {sharingPref === 'active_journey_only' && <Check className="w-4 h-4 text-[#6C4AB6]" />}
               </label>
 
               <label
                 onClick={() => setSharingPref('never_auto')}
-                className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer font-bold ${
+                className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer font-bold transition-all ${
                   sharingPref === 'never_auto'
-                    ? 'bg-teal-50 border-teal-600 text-teal-950'
-                    : 'bg-white border-slate-200 text-slate-700'
+                    ? 'bg-purple-50/80 border-[#6C4AB6] text-[#43266F]'
+                    : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
                 }`}
               >
                 <span>Never share automatically</span>
-                {sharingPref === 'never_auto' && <Check className="w-4 h-4 text-teal-700" />}
+                {sharingPref === 'never_auto' && <Check className="w-4 h-4 text-[#6C4AB6]" />}
               </label>
             </div>
           </div>
@@ -114,7 +114,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, contacts, onLogo
               <button
                 onClick={() => setSaveHistory(!saveHistory)}
                 className={`w-12 h-6 rounded-full transition-colors p-1 ${
-                  saveHistory ? 'bg-teal-700' : 'bg-slate-300'
+                  saveHistory ? 'bg-[#6C4AB6]' : 'bg-slate-300'
                 }`}
               >
                 <div
@@ -129,7 +129,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, contacts, onLogo
 
         <button
           onClick={handleSaveSettings}
-          className="w-full py-3 rounded-xl font-bold text-xs bg-teal-700 text-white hover:bg-teal-800 shadow-md shadow-teal-700/20"
+          className="w-full py-3 rounded-xl font-bold text-xs bg-[#6C4AB6] text-white hover:bg-[#43266F] shadow-md shadow-[#6C4AB6]/20 transition-colors"
         >
           Save Settings
         </button>
@@ -143,7 +143,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, contacts, onLogo
         </p>
         <button
           onClick={() => setShowDeleteModal(true)}
-          className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs"
+          className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs transition-colors"
         >
           Delete My Account
         </button>
@@ -151,7 +151,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, contacts, onLogo
 
       {/* DELETE ACCOUNT MODAL */}
       {showDeleteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
           <div className="bg-white p-6 rounded-3xl max-w-md w-full space-y-4 text-center">
             <h3 className="text-lg font-black text-slate-900">Confirm Account Deletion</h3>
             <p className="text-xs text-slate-600">
